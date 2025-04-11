@@ -35,21 +35,6 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/validate/report/[id]/page.js"
-    ],
-    "/validate/advance/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/validate/advance/page.js"
-    ],
-    "/validations/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/validations/page.js"
-    ],
-    "/validations/[id]/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/validations/[id]/page.js"
     ]
   }
 }

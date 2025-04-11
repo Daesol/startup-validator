@@ -1,8 +1,5 @@
 {
-  "/validate/page": "app/validate/page.js",
-  "/validations/page": "app/validations/page.js",
-  "/validations/[id]/page": "app/validations/[id]/page.js",
-  "/validate/general/page": "app/validate/general/page.js",
-  "/page": "app/page.js",
-  "/validate/advance/page": "app/validate/advance/page.js"
+  "/api/analyze/route": "app/api/analyze/route.js",
+  "/validate/report/[id]/page": "app/validate/report/[id]/page.js",
+  "/validate/general/page": "app/validate/general/page.js"
 }
