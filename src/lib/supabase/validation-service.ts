@@ -44,8 +44,7 @@ export async function saveValidationForm(
         raised_funds: formData.raisedFunds || null,
         funds_raised: formData.fundsRaised ? Number(formData.fundsRaised) : null,
         investors: formData.investors || null,
-        co_founder_count: formData.coFounderCount ? Number(formData.coFounderCount) : null,
-        team_members: formData.teamMembers || null,
+        co_founder_count: formData.coFounderCount ? Number(formData.coFounderCount) : null
       })
       .select("id")
       .single()
@@ -53,6 +52,12 @@ export async function saveValidationForm(
     if (formError) {
       console.error("Error saving form:", formError)
       return { success: false, error: "Failed to save form data" }
+    }
+
+    // If we have team members, save them to a separate table
+    if (formData.teamMembers && formData.teamMembers.length > 0 && form.id) {
+      // For now we'll just log this - we'll need to create a separate team_members table later
+      console.log("Team members would be saved separately:", formData.teamMembers)
     }
 
     // If we have analysis results, save them
@@ -100,13 +105,12 @@ export async function getValidationForms() {
 export async function getValidationFormWithAnalysis(id: string): Promise<ValidationWithAnalysis | null> {
   const supabaseServer = createServerSupabaseClient()
 
-  // Get the validation form with analysis and team members
+  // Get the validation form with analysis
   const { data, error } = await supabaseServer
     .from("validation_forms")
     .select(`
       *,
-      validation_analyses (*),
-      team_members (*)
+      validation_analyses (*)
     `)
     .eq("id", id)
     .single()
@@ -116,5 +120,8 @@ export async function getValidationFormWithAnalysis(id: string): Promise<Validat
     return null
   }
 
-  return data as ValidationWithAnalysis
+  return {
+    ...data,
+    team_members: [] // Return empty array for team members until we have a proper table
+  } as ValidationWithAnalysis
 }
