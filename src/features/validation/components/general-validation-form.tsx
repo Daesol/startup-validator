@@ -43,28 +43,22 @@ export function GeneralValidationForm() {
     setIsSubmitting(true)
 
     try {
-      // Create a FormData object
-      const formDataObj = new FormData()
-      formDataObj.append("businessIdea", formData.businessIdea)
-      if (formData.websiteUrl) {
-        formDataObj.append("websiteUrl", formData.websiteUrl)
-      }
-
-      // Submit the form using fetch
-      const response = await fetch("/api/analyze", {
-        method: "POST",
-        body: formDataObj,
+      // Call the server action directly
+      const result = await submitGeneralForm({
+        businessIdea: formData.businessIdea,
+        websiteUrl: formData.websiteUrl || "",
       })
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.message || "Failed to submit form")
+      if (!result.success) {
+        toast({
+          title: "Error",
+          description: result.message,
+          variant: "destructive",
+        })
+        return
       }
 
-      const result = await response.json()
-      
-      // Navigate to the report page
-      router.push(`/validate/report/${result.formId}`)
+      // The server action will handle the redirect
     } catch (error) {
       console.error("Error submitting form:", error)
       toast({
