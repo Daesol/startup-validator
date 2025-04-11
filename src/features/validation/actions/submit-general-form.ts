@@ -4,20 +4,28 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { analyzeBusiness } from "@/lib/ai/business-analyzer"
 import { saveValidationForm } from "@/lib/supabase/validation-service"
-import { ValidationFormValues } from "../types"
 
-export async function submitGeneralForm(formData: ValidationFormValues) {
+export async function submitGeneralForm(formData: {
+  businessIdea: string;
+  websiteUrl?: string;
+}) {
   try {
     // Generate analysis
-    const analysis = await analyzeBusiness(formData)
+    const analysis = await analyzeBusiness({
+      businessIdea: formData.businessIdea,
+      website: formData.websiteUrl 
+    })
 
     // Save form data and analysis
-    const result = await saveValidationForm(formData, analysis)
+    const result = await saveValidationForm({
+      businessIdea: formData.businessIdea,
+      websiteUrl: formData.websiteUrl
+    }, analysis)
 
     if (!result.success) {
       return {
         success: false,
-        message: result.message,
+        message: result.error,
       }
     }
 

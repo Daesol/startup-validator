@@ -1,6 +1,6 @@
 import { supabase } from "./client"
 import { createServerSupabaseClient } from "./server"
-import type { ValidationFormValues } from "@/features/validation/schemas/validation-form-schema"
+import type { ValidationFormValues } from "@/features/validation/types"
 import type { ValidationFormRecord, TeamMemberRecord, ValidationWithTeamMembers, AnalysisResultRecord, ValidationWithAnalysis } from "./types"
 import type { AnalysisResult } from "@/lib/ai/business-analyzer"
 import { createBrowserClient } from '@supabase/ssr'
@@ -22,7 +22,7 @@ export async function saveValidationForm(
       .from("validation_forms")
       .insert({
         business_idea: formData.businessIdea,
-        website: formData.website || null,
+        website: formData.websiteUrl || null,
         business_stage: formData.businessStage || null,
         business_type: formData.businessType || null,
         personal_problem: formData.personalProblem || null,
@@ -30,21 +30,21 @@ export async function saveValidationForm(
         target_audience_other: formData.targetAudienceOther || null,
         charging: formData.charging || null,
         differentiation: formData.differentiation || null,
-        competitors: formData.competitors || [],
-        user_count: formData.userCount || null,
-        mau: formData.mau || null,
-        monthly_revenue: formData.monthlyRevenue || null,
+        competitors: Array.isArray(formData.competitors) ? formData.competitors.join(",") : null,
+        user_count: formData.userCount ? Number(formData.userCount) : null,
+        mau: formData.mau ? Number(formData.mau) : null,
+        monthly_revenue: formData.monthlyRevenue ? Number(formData.monthlyRevenue) : null,
         acquisition_channel: formData.acquisitionChannel || null,
         revenue_range: formData.revenueRange || null,
         pricing_model: formData.pricingModel || null,
         pricing_model_other: formData.pricingModelOther || null,
-        cac: formData.cac || null,
-        ltv: formData.ltv || null,
-        team_size: formData.teamSize || null,
+        cac: formData.cac ? Number(formData.cac) : null,
+        ltv: formData.ltv ? Number(formData.ltv) : null,
+        team_size: formData.teamSize ? Number(formData.teamSize) : null,
         raised_funds: formData.raisedFunds || null,
-        funds_raised: formData.fundsRaised || null,
+        funds_raised: formData.fundsRaised ? Number(formData.fundsRaised) : null,
         investors: formData.investors || null,
-        co_founder_count: formData.coFounderCount || null,
+        co_founder_count: formData.coFounderCount ? Number(formData.coFounderCount) : null,
         team_members: formData.teamMembers || null,
       })
       .select("id")

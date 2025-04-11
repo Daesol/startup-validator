@@ -1,5 +1,5 @@
 import OpenAI from "openai"
-import type { ValidationFormValues } from "@/features/validation/schemas/validation-form-schema"
+import type { ValidationFormValues } from "@/features/validation/types"
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -61,8 +61,13 @@ export async function analyzeBusiness(
       throw new Error("No content received from OpenAI")
     }
 
-    const analysis = JSON.parse(content)
-    return analysis
+    try {
+      const analysis = JSON.parse(content)
+      return analysis
+    } catch (parseError) {
+      console.error("Error parsing OpenAI response:", parseError)
+      throw new Error("Failed to parse analysis response")
+    }
   } catch (error) {
     console.error("Error analyzing business:", error)
     throw error
@@ -72,13 +77,18 @@ export async function analyzeBusiness(
 function createAnalysisPrompt(
   formData: ValidationFormValues | { businessIdea: string; website?: string }
 ): string {
+  // Check if it's the full form or simplified form
+  const isSimplifiedForm = "website" in formData
   const isFullForm = "businessStage" in formData
 
-  if (!isFullForm) {
+  if (isSimplifiedForm || !isFullForm) {
+    // Handle simplified form data
+    const website = isSimplifiedForm ? formData.website : (formData as ValidationFormValues).websiteUrl
+
     return `Analyze this startup idea and provide a detailed validation report in JSON format:
 
 Business Idea: ${formData.businessIdea}
-Website: ${formData.website || "Not provided"}
+Website: ${website || "Not provided"}
 
 Please provide a comprehensive analysis in the following JSON structure:
 {
@@ -108,37 +118,43 @@ Please provide a comprehensive analysis in the following JSON structure:
 }`
   }
 
+  // We know it's the full form at this point
+  const fullFormData = formData as ValidationFormValues
+
+  // Handle full form data with ValidationFormValues type
   return `Analyze this startup idea and provide a detailed validation report in JSON format:
 
-Business Idea: ${formData.businessIdea}
-Website: ${formData.website || "Not provided"}
-Business Stage: ${formData.businessStage || "Not specified"}
-Business Type: ${formData.businessType || "Not specified"}
+Business Idea: ${fullFormData.businessIdea}
+Website: ${fullFormData.websiteUrl || "Not provided"}
+Business Stage: ${fullFormData.businessStage || "Not specified"}
+Business Type: ${fullFormData.businessType || "Not specified"}
 
-Target Audience: ${formData.targetAudience || "Not specified"}
-${formData.targetAudienceOther ? `Additional Target Audience: ${formData.targetAudienceOther}` : ""}
+Target Audience: ${fullFormData.targetAudience || "Not specified"}
+${fullFormData.targetAudienceOther ? `Additional Target Audience: ${fullFormData.targetAudienceOther}` : ""}
 
-Problem Being Solved: ${formData.personalProblem || "Not specified"}
-Revenue Model: ${formData.charging || "Not specified"}
-Differentiation: ${formData.differentiation || "Not specified"}
-Competitors: ${formData.competitors?.join(", ") || "Not specified"}
+Problem Being Solved: ${fullFormData.personalProblem || "Not specified"}
+Revenue Model: ${fullFormData.charging || "Not specified"}
+Differentiation: ${fullFormData.differentiation || "Not specified"}
+Competitors: ${fullFormData.competitors?.join(", ") || "Not specified"}
 
 Metrics:
-- Users: ${formData.userCount || "Not specified"}
-- MAU: ${formData.mau || "Not specified"}
-- Monthly Revenue: ${formData.monthlyRevenue || "Not specified"}
-- CAC: ${formData.cac || "Not specified"}
-- LTV: ${formData.ltv || "Not specified"}
+- Users: ${fullFormData.userCount || "Not specified"}
+- MAU: ${fullFormData.mau || "Not specified"}
+- Monthly Revenue: ${fullFormData.monthlyRevenue || "Not specified"}
+- CAC: ${fullFormData.cac || "Not specified"}
+- LTV: ${fullFormData.ltv || "Not specified"}
 
 Team:
-- Size: ${formData.teamSize || "Not specified"}
-- Co-founders: ${formData.coFounderCount || "Not specified"}
-${formData.teamMembers?.map(member => `- ${member.person}: ${member.skills?.join(", ") || "No skills specified"}`).join("\n") || ""}
+- Size: ${fullFormData.teamSize || "Not specified"}
+- Co-founders: ${fullFormData.coFounderCount || "Not specified"}
+${fullFormData.teamMembers?.map(member => 
+  `- ${member.name}: ${member.role} - ${member.experience}`
+).join("\n") || ""}
 
 Funding:
-- Raised: ${formData.raisedFunds ? "Yes" : "No"}
-- Amount: ${formData.fundsRaised || "Not specified"}
-- Investors: ${formData.investors || "Not specified"}
+- Raised: ${fullFormData.raisedFunds ? "Yes" : "No"}
+- Amount: ${fullFormData.fundsRaised || "Not specified"}
+- Investors: ${fullFormData.investors || "Not specified"}
 
 Please provide a comprehensive analysis in the following JSON structure:
 {
