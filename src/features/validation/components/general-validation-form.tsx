@@ -42,26 +42,19 @@ export function GeneralValidationForm() {
     setIsSubmitting(true)
 
     try {
-      const result = await submitGeneralForm(formData)
-
-      if (!result.success) {
+      await submitGeneralForm(formData)
+      // The redirect will happen automatically
+      // No need to handle the response or catch the redirect error
+    } catch (error) {
+      // Only show error toast if it's not a redirect
+      if (!(error instanceof Error) || !error.message.includes('NEXT_REDIRECT')) {
+        console.error("Error submitting form:", error)
         toast({
           title: "Error",
-          description: result.message || "Failed to submit form. Please try again.",
+          description: "An unexpected error occurred. Please try again.",
           variant: "destructive",
         })
-        return
       }
-
-      // The redirect will be handled by the server action
-      // No need to do anything here as the redirect will happen automatically
-    } catch (error) {
-      console.error("Error submitting form:", error)
-      toast({
-        title: "Error",
-        description: "An unexpected error occurred. Please try again.",
-        variant: "destructive",
-      })
     } finally {
       setIsSubmitting(false)
     }
