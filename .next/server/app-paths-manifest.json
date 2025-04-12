@@ -1,5 +1,7 @@
 {
   "/page": "app/page.js",
-  "/validate/page": "app/validate/page.js",
-  "/validate/general/page": "app/validate/general/page.js"
+  "/validate/advance/page": "app/validate/advance/page.js",
+  "/validate/general/page": "app/validate/general/page.js",
+  "/validate/report/[id]/page": "app/validate/report/[id]/page.js",
+  "/validate/report/page": "app/validate/report/page.js"
 }

@@ -9,6 +9,7 @@ import type { Database } from './database.types'
 // Client-side functions
 export async function saveValidationForm(
   formData: ValidationFormValues,
+  formType: "general" | "advanced",
   analysis?: AnalysisResult
 ): Promise<{ success: boolean; formId?: string; error?: string }> {
   try {
@@ -17,23 +18,11 @@ export async function saveValidationForm(
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
 
-    // Determine form type based on the data structure
-    const isAdvancedForm = !!(
-      formData.businessType ||
-      formData.businessStage ||
-      formData.personalProblem ||
-      formData.targetAudience ||
-      formData.charging ||
-      formData.differentiation ||
-      formData.competitors ||
-      formData.teamMembers
-    )
-
     // Save the form data
     const { data: form, error: formError } = await supabase
       .from("validation_forms")
       .insert({
-        form_type: isAdvancedForm ? "advanced" : "general",
+        form_type: formType,
         business_idea: formData.businessIdea,
         website: formData.websiteUrl || null,
         business_stage: formData.businessStage || null,
@@ -43,7 +32,7 @@ export async function saveValidationForm(
         target_audience_other: formData.targetAudienceOther || null,
         charging: formData.charging || null,
         differentiation: formData.differentiation || null,
-        competitors: Array.isArray(formData.competitors) ? formData.competitors.join(",") : null,
+        competitors: formData.competitors && formData.competitors.length > 0 ? formData.competitors : null,
         user_count: formData.userCount ? Number(formData.userCount) : null,
         mau: formData.mau ? Number(formData.mau) : null,
         monthly_revenue: formData.monthlyRevenue ? Number(formData.monthlyRevenue) : null,
@@ -67,14 +56,26 @@ export async function saveValidationForm(
       return { success: false, error: "Failed to save form data" }
     }
 
-    // If we have team members, save them to a separate table
-    if (formData.teamMembers && formData.teamMembers.length > 0 && form.id) {
-      // For now we'll just log this - we'll need to create a separate team_members table later
-      console.log("Team members would be saved separately:", formData.teamMembers)
+    // Save team members if they exist
+    if (formData.teamMembers && formData.teamMembers.length > 0) {
+      const teamMembersToInsert = formData.teamMembers.map((member) => ({
+        validation_form_id: form.id,
+        person: member.person,
+        skills: member.skills && member.skills.length > 0 ? member.skills : null
+      }))
+
+      const { error: teamError } = await supabase
+        .from("team_members")
+        .insert(teamMembersToInsert)
+
+      if (teamError) {
+        console.error("Error saving team members:", teamError)
+        return { success: false, error: "Failed to save team members" }
+      }
     }
 
-    // If we have analysis results, save them
-    if (analysis && form.id) {
+    // Save analysis if it exists
+    if (analysis) {
       const { error: analysisError } = await supabase
         .from("validation_analyses")
         .insert({
@@ -87,7 +88,7 @@ export async function saveValidationForm(
 
       if (analysisError) {
         console.error("Error saving analysis:", analysisError)
-        return { success: false, error: "Failed to save analysis data" }
+        return { success: false, error: "Failed to save analysis" }
       }
     }
 
@@ -137,4 +138,51 @@ export async function getValidationFormWithAnalysis(id: string): Promise<Validat
     ...data,
     team_members: [] // Return empty array for team members until we have a proper table
   } as ValidationWithAnalysis
+}
+
+export async function clearValidationTables(): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = createBrowserClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+
+    // Clear team_members table first (due to foreign key constraint)
+    const { error: teamError } = await supabase
+      .from("team_members")
+      .delete()
+      .neq("id", "00000000-0000-0000-0000-000000000000") // Delete all records
+
+    if (teamError) {
+      console.error("Error clearing team_members:", teamError)
+      return { success: false, error: "Failed to clear team_members table" }
+    }
+
+    // Clear validation_analyses table next (due to foreign key constraint)
+    const { error: analysisError } = await supabase
+      .from("validation_analyses")
+      .delete()
+      .neq("id", "00000000-0000-0000-0000-000000000000") // Delete all records
+
+    if (analysisError) {
+      console.error("Error clearing validation_analyses:", analysisError)
+      return { success: false, error: "Failed to clear validation_analyses table" }
+    }
+
+    // Clear validation_forms table last
+    const { error: formError } = await supabase
+      .from("validation_forms")
+      .delete()
+      .neq("id", "00000000-0000-0000-0000-000000000000") // Delete all records
+
+    if (formError) {
+      console.error("Error clearing validation_forms:", formError)
+      return { success: false, error: "Failed to clear validation_forms table" }
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error in clearValidationTables:", error)
+    return { success: false, error: "An unexpected error occurred" }
+  }
 }

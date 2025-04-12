@@ -24,8 +24,8 @@ export type ValidationFormValues = {
   investors?: string
   coFounderCount?: string
   teamMembers?: Array<{
-    name: string
-    role: string
-    experience: string
+    person: string
+    skills: string[]
   }>
+  teamGaps?: string
 } 

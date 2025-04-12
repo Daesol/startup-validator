@@ -10,6 +10,17 @@
       "layer": {
         "app/validate/general/page": "action-browser"
       }
+    },
+    "40dbba5d1b392b5343e25538cadaba9943ac0b9be8": {
+      "workers": {
+        "app/validate/advance/page": {
+          "moduleId": "(action-browser)/./node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22%2FUsers%2Ftammyartawong%2FDocuments%2FFoundr%20Club%2Fstartup-validator%2Fsrc%2Ffeatures%2Fvalidation%2Factions%2Fsubmit-advance-form.ts%22%2C%5B%7B%22id%22%3A%2240dbba5d1b392b5343e25538cadaba9943ac0b9be8%22%2C%22exportedName%22%3A%22submitAdvanceForm%22%7D%5D%5D%5D&__client_imported__=true!",
+          "async": false
+        }
+      },
+      "layer": {
+        "app/validate/advance/page": "action-browser"
+      }
     }
   },
   "edge": {},

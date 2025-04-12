@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation"
 import { validationFormSchema, type ValidationFormValues } from "../schemas/validation-form-schema"
 import { saveValidationForm } from "@/lib/supabase/validation-service"
 import { toast } from "@/components/ui/use-toast"
+import { submitAdvanceForm } from "../actions/submit-advance-form"
 
 export function useValidationForm() {
   const router = useRouter()
@@ -165,41 +166,36 @@ export function useValidationForm() {
     setIsSubmitting(true)
 
     try {
-      // Save to Supabase
-      const formId = await saveValidationForm(data, "advanced")
+      const result = await submitAdvanceForm(data)
 
-      if (!formId) {
+      if (!result.success) {
         toast({
           title: "Error",
-          description: "There was a problem saving your validation. Please try again.",
+          description: result.message || "There was a problem saving your validation. Please try again.",
           variant: "destructive",
         })
         setIsSubmitting(false)
         return
       }
 
-      // Store form data in localStorage for the report page
-      localStorage.setItem(
-        "validationFormData",
-        JSON.stringify({
-          ...data,
-          formId,
-          formType: "advanced", // Add metadata to distinguish form types
-        }),
-      )
-
+      // Show success message
       toast({
         title: "Success",
         description: "Your validation has been saved successfully.",
       })
 
-      // Navigate to the report page
-      router.push("/validate/report")
+      // The redirect will be handled by the server action
+      // We don't need to do anything here as the server will handle the redirect
     } catch (error) {
+      // Ignore redirect errors as they are expected
+      if (error instanceof Error && error.message.includes('NEXT_REDIRECT')) {
+        return
+      }
+
       console.error("Error submitting form:", error)
       toast({
         title: "Error",
-        description: "There was a problem saving your validation. Please try again.",
+        description: error instanceof Error ? error.message : "There was a problem saving your validation. Please try again.",
         variant: "destructive",
       })
     } finally {
