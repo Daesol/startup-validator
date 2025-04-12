@@ -17,10 +17,23 @@ export async function saveValidationForm(
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
 
+    // Determine form type based on the data structure
+    const isAdvancedForm = !!(
+      formData.businessType ||
+      formData.businessStage ||
+      formData.personalProblem ||
+      formData.targetAudience ||
+      formData.charging ||
+      formData.differentiation ||
+      formData.competitors ||
+      formData.teamMembers
+    )
+
     // Save the form data
     const { data: form, error: formError } = await supabase
       .from("validation_forms")
       .insert({
+        form_type: isAdvancedForm ? "advanced" : "general",
         business_idea: formData.businessIdea,
         website: formData.websiteUrl || null,
         business_stage: formData.businessStage || null,
