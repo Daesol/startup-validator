@@ -163,27 +163,12 @@ export function useValidationForm() {
 
   // Handle form submission
   const onSubmit = async (data: ValidationFormValues) => {
+    if (isSubmitting) return
+    
     setIsSubmitting(true)
 
     try {
-      const result = await submitAdvanceForm(data)
-
-      if (!result.success) {
-        toast({
-          title: "Error",
-          description: result.message || "There was a problem saving your validation. Please try again.",
-          variant: "destructive",
-        })
-        setIsSubmitting(false)
-        return
-      }
-
-      // Show success message
-      toast({
-        title: "Success",
-        description: "Your validation has been saved successfully.",
-      })
-
+      await submitAdvanceForm(data)
       // The redirect will be handled by the server action
       // We don't need to do anything here as the server will handle the redirect
     } catch (error) {
@@ -198,7 +183,6 @@ export function useValidationForm() {
         description: error instanceof Error ? error.message : "There was a problem saving your validation. Please try again.",
         variant: "destructive",
       })
-    } finally {
       setIsSubmitting(false)
     }
   }

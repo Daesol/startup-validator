@@ -9,6 +9,7 @@ import { TeamTabContent } from "./tabs/team-tab-content"
 import { useValidationForm } from "../hooks/use-validation-form"
 import { FormProvider } from "react-hook-form"
 import { FormNavigation } from "./ui/form-navigation"
+import { LoadingPage } from "./loading-page"
 
 export function ValidationForm() {
   const router = useRouter()
@@ -27,16 +28,21 @@ export function ValidationForm() {
     handleBack,
     onSubmit,
     isIdeaTabValid,
+    isSubmitting,
   } = useValidationForm()
+
+  if (isSubmitting) {
+    return <LoadingPage />
+  }
 
   return (
     <Card className="p-4">
       <FormProvider {...form}>
         <form
           onSubmit={(e) => {
+            e.preventDefault()
             if (activeTab !== "team") {
-              e.preventDefault()
-              handleNext(e)
+              handleNext()
             } else {
               form.handleSubmit(onSubmit)(e)
             }
@@ -75,6 +81,7 @@ export function ValidationForm() {
             onCancel={() => router.push("/validate")}
             isNextDisabled={activeTab === "idea" && !isIdeaTabValid}
             isLastStep={activeTab === "team"}
+            isSubmitting={isSubmitting}
           />
         </form>
       </FormProvider>

@@ -8,8 +8,8 @@ import type { Database } from './database.types'
 
 // Client-side functions
 export async function saveValidationForm(
-  formData: ValidationFormValues,
-  formType: "general" | "advanced",
+  formData: ValidationFormValues | { businessIdea: string; websiteUrl?: string },
+  formType: "general" | "advanced" = "general",
   analysis?: AnalysisResult
 ): Promise<{ success: boolean; formId?: string; error?: string }> {
   try {
@@ -17,7 +17,7 @@ export async function saveValidationForm(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
-
+    
     // Save the form data
     const { data: form, error: formError } = await supabase
       .from("validation_forms")
@@ -25,28 +25,28 @@ export async function saveValidationForm(
         form_type: formType,
         business_idea: formData.businessIdea,
         website: formData.websiteUrl || null,
-        business_stage: formData.businessStage || null,
-        business_type: formData.businessType || null,
-        personal_problem: formData.personalProblem || null,
-        target_audience: formData.targetAudience || null,
-        target_audience_other: formData.targetAudienceOther || null,
-        charging: formData.charging || null,
-        differentiation: formData.differentiation || null,
-        competitors: formData.competitors && formData.competitors.length > 0 ? formData.competitors : null,
-        user_count: formData.userCount ? Number(formData.userCount) : null,
-        mau: formData.mau ? Number(formData.mau) : null,
-        monthly_revenue: formData.monthlyRevenue ? Number(formData.monthlyRevenue) : null,
-        acquisition_channel: formData.acquisitionChannel || null,
-        revenue_range: formData.revenueRange || null,
-        pricing_model: formData.pricingModel || null,
-        pricing_model_other: formData.pricingModelOther || null,
-        cac: formData.cac ? Number(formData.cac) : null,
-        ltv: formData.ltv ? Number(formData.ltv) : null,
-        team_size: formData.teamSize ? Number(formData.teamSize) : null,
-        raised_funds: formData.raisedFunds || null,
-        funds_raised: formData.fundsRaised ? Number(formData.fundsRaised) : null,
-        investors: formData.investors || null,
-        co_founder_count: formData.coFounderCount ? Number(formData.coFounderCount) : null
+        business_stage: 'businessStage' in formData ? formData.businessStage : null,
+        business_type: 'businessType' in formData ? formData.businessType : null,
+        personal_problem: 'personalProblem' in formData ? formData.personalProblem : null,
+        target_audience: 'targetAudience' in formData ? formData.targetAudience : null,
+        target_audience_other: 'targetAudienceOther' in formData ? formData.targetAudienceOther : null,
+        charging: 'charging' in formData ? formData.charging : null,
+        differentiation: 'differentiation' in formData ? formData.differentiation : null,
+        competitors: 'competitors' in formData && formData.competitors && formData.competitors.length > 0 ? formData.competitors : null,
+        user_count: 'userCount' in formData && formData.userCount ? Number(formData.userCount) : null,
+        mau: 'mau' in formData && formData.mau ? Number(formData.mau) : null,
+        monthly_revenue: 'monthlyRevenue' in formData && formData.monthlyRevenue ? Number(formData.monthlyRevenue) : null,
+        acquisition_channel: 'acquisitionChannel' in formData ? formData.acquisitionChannel : null,
+        revenue_range: 'revenueRange' in formData ? formData.revenueRange : null,
+        pricing_model: 'pricingModel' in formData ? formData.pricingModel : null,
+        pricing_model_other: 'pricingModelOther' in formData ? formData.pricingModelOther : null,
+        cac: 'cac' in formData && formData.cac ? Number(formData.cac) : null,
+        ltv: 'ltv' in formData && formData.ltv ? Number(formData.ltv) : null,
+        team_size: 'teamSize' in formData && formData.teamSize ? Number(formData.teamSize) : null,
+        raised_funds: 'raisedFunds' in formData ? formData.raisedFunds : null,
+        funds_raised: 'fundsRaised' in formData && formData.fundsRaised ? Number(formData.fundsRaised) : null,
+        investors: 'investors' in formData ? formData.investors : null,
+        co_founder_count: 'coFounderCount' in formData && formData.coFounderCount ? Number(formData.coFounderCount) : null
       })
       .select("id")
       .single()
@@ -56,12 +56,12 @@ export async function saveValidationForm(
       return { success: false, error: "Failed to save form data" }
     }
 
-    // Save team members if they exist
-    if (formData.teamMembers && formData.teamMembers.length > 0) {
-      const teamMembersToInsert = formData.teamMembers.map((member) => ({
+    // Save team members if present
+    if ('teamMembers' in formData && formData.teamMembers && formData.teamMembers.length > 0) {
+      const teamMembersToInsert = formData.teamMembers.map(member => ({
         validation_form_id: form.id,
         person: member.person,
-        skills: member.skills && member.skills.length > 0 ? member.skills : null
+        skills: member.skills
       }))
 
       const { error: teamError } = await supabase
@@ -70,38 +70,68 @@ export async function saveValidationForm(
 
       if (teamError) {
         console.error("Error saving team members:", teamError)
-        return { success: false, error: "Failed to save team members" }
+        // Continue even if team members fail to save
       }
     }
 
-    // Save analysis if it exists
+    // Save analysis if present
     if (analysis) {
-      const { error: analysisError } = await supabase
+      // Check if there's an existing analysis
+      const { data: existingAnalysis, error: checkError } = await supabase
         .from("validation_analyses")
-        .insert({
-          validation_form_id: form.id,
-          market_analysis: analysis.market_analysis,
-          business_model: analysis.business_model,
-          team_strength: analysis.team_strength,
-          overall_assessment: analysis.overall_assessment,
-        })
+        .select("id")
+        .eq("validation_form_id", form.id)
+        
+      // If there's already an analysis, update it
+      if (!checkError && existingAnalysis && existingAnalysis.length > 0) {
+        const { error: updateError } = await supabase
+          .from("validation_analyses")
+          .update({
+            market_analysis: analysis.market_analysis,
+            business_model: analysis.business_model,
+            team_strength: analysis.team_strength,
+            overall_assessment: analysis.overall_assessment,
+            updated_at: new Date().toISOString()
+          })
+          .eq("validation_form_id", form.id)
 
-      if (analysisError) {
-        console.error("Error saving analysis:", analysisError)
-        return { success: false, error: "Failed to save analysis" }
+        if (updateError) {
+          console.error("Error updating analysis:", updateError)
+          return { success: true, formId: form.id, error: "Analysis saved but validation failed" }
+        }
+      } else {
+        // Otherwise, insert a new analysis
+        const { error: analysisError } = await supabase
+          .from("validation_analyses")
+          .insert({
+            validation_form_id: form.id,
+            market_analysis: analysis.market_analysis,
+            business_model: analysis.business_model,
+            team_strength: analysis.team_strength,
+            overall_assessment: analysis.overall_assessment
+          })
+
+        if (analysisError) {
+          console.error("Error saving analysis:", analysisError)
+          return { success: true, formId: form.id, error: "Form saved but analysis failed" }
+        }
       }
     }
 
     return { success: true, formId: form.id }
   } catch (error) {
     console.error("Error in saveValidationForm:", error)
-    return { success: false, error: "An unexpected error occurred" }
+    return { success: false, error: error instanceof Error ? error.message : "An unexpected error occurred" }
   }
 }
 
 // Server-side functions
 export async function getValidationForms() {
   const supabaseServer = createServerSupabaseClient()
+  if (!supabaseServer) {
+    console.error("Failed to create Supabase client")
+    return []
+  }
 
   const { data, error } = await supabaseServer
     .from("validation_forms")
@@ -118,6 +148,10 @@ export async function getValidationForms() {
 
 export async function getValidationFormWithAnalysis(id: string): Promise<ValidationWithAnalysis | null> {
   const supabaseServer = createServerSupabaseClient()
+  if (!supabaseServer) {
+    console.error("Failed to create Supabase client")
+    return null
+  }
 
   // Get the validation form with analysis
   const { data, error } = await supabaseServer

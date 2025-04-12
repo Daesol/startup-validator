@@ -20,7 +20,7 @@ export async function submitGeneralForm(formData: {
     const result = await saveValidationForm({
       businessIdea: formData.businessIdea,
       websiteUrl: formData.websiteUrl
-    }, analysis)
+    }, "general", analysis)
 
     if (!result.success) {
       return {
@@ -39,6 +39,9 @@ export async function submitGeneralForm(formData: {
 
     // Revalidate the specific path
     revalidatePath(`/validate/report/${result.formId}`, 'page')
+
+    // Add a small delay to allow the client-side loading animation to complete
+    await new Promise(resolve => setTimeout(resolve, 1000))
 
     // Redirect to the report page
     // Using throw redirect to ensure the redirect happens

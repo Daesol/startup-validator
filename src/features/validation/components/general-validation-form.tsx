@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Loader2 } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 import { submitGeneralForm } from "../actions/submit-general-form"
+import { LoadingPage } from "./loading-page"
 
 export function GeneralValidationForm() {
   const router = useRouter()
@@ -35,7 +36,7 @@ export function GeneralValidationForm() {
     e.preventDefault()
     setSubmitAttempted(true)
 
-    if (!formData.businessIdea.trim()) {
+    if (!formData.businessIdea.trim() || isSubmitting) {
       return
     }
 
@@ -54,10 +55,13 @@ export function GeneralValidationForm() {
           description: "An unexpected error occurred. Please try again.",
           variant: "destructive",
         })
+        setIsSubmitting(false)
       }
-    } finally {
-      setIsSubmitting(false)
     }
+  }
+
+  if (isSubmitting) {
+    return <LoadingPage />
   }
 
   return (
@@ -80,6 +84,7 @@ export function GeneralValidationForm() {
               style={{
                 borderColor: submitAttempted && !formData.businessIdea.trim() ? "rgb(252, 165, 165)" : undefined,
               }}
+              disabled={isSubmitting}
             />
             {submitAttempted && !formData.businessIdea.trim() && (
               <p className="text-xs text-red-500">Business idea is required</p>
@@ -95,6 +100,7 @@ export function GeneralValidationForm() {
               value={formData.websiteUrl}
               onChange={(e) => handleChange("websiteUrl", e.target.value)}
               className="w-full"
+              disabled={isSubmitting}
             />
           </div>
 

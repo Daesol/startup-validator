@@ -1,19 +1,24 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { createBrowserClient } from "@supabase/ssr"
 import type { ValidationWithAnalysis } from "@/lib/supabase/types"
 import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Loader2 } from "lucide-react"
+import { LoadingPage, completeLoadingProgress } from "@/features/validation/components/loading-page"
 
 export default function ReportPage() {
   const params = useParams()
+  const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [validation, setValidation] = useState<ValidationWithAnalysis | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
+  const maxRetries = 5
+
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -30,18 +35,34 @@ export default function ReportPage() {
           .single()
 
         if (formError) {
-          throw formError
+          throw new Error(`Failed to fetch form data: ${formError.message}`)
         }
 
-        // Then, get the analysis
+        if (!formData) {
+          throw new Error("No form data found")
+        }
+
+        // Then, get the analysis with retry logic for when it's still processing
         const { data: analysisData, error: analysisError } = await supabase
           .from("validation_analyses")
           .select("*")
           .eq("validation_form_id", params.id)
-          .single()
+          .maybeSingle()  // Use maybeSingle() instead of single() to avoid error when no rows returned
 
-        if (analysisError) {
-          throw analysisError
+        if (analysisError && analysisError.code !== 'PGRST116') {
+          // PGRST116 is the "no rows returned" error which we want to handle
+          throw new Error(`Failed to fetch analysis: ${analysisError.message}`)
+        }
+
+        if (!analysisData) {
+          // Analysis might still be processing, retry after a delay
+          if (retryCount < maxRetries) {
+            setTimeout(() => {
+              setRetryCount(prev => prev + 1)
+            }, 2000)  // Retry after 2 seconds
+            return
+          }
+          throw new Error("Analysis is taking longer than expected. Please check back later.")
         }
 
         // Finally, get the team members
@@ -51,7 +72,8 @@ export default function ReportPage() {
           .eq("validation_form_id", params.id)
 
         if (teamError) {
-          throw teamError
+          console.warn("Failed to fetch team members:", teamError)
+          // Continue without team members
         }
 
         // Combine all the data
@@ -60,9 +82,12 @@ export default function ReportPage() {
           analysis: analysisData,
           team_members: teamData || [],
         })
+
+        // Complete the loading animation
+        completeLoadingProgress()
       } catch (error) {
         console.error("Error fetching analysis:", error)
-        setError("Failed to load analysis. Please try again.")
+        setError(error instanceof Error ? error.message : "Failed to load analysis. Please try again.")
       } finally {
         setLoading(false)
       }
@@ -71,14 +96,10 @@ export default function ReportPage() {
     if (params.id) {
       fetchAnalysis()
     }
-  }, [params.id, supabase])
+  }, [params.id, supabase, retryCount])
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    )
+    return <LoadingPage onComplete={() => router.push(`/validate/report/${params.id}`)} />
   }
 
   if (error) {

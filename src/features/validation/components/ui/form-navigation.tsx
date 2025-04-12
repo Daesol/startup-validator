@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button"
 
 interface FormNavigationProps {
   activeTab: string
-  onBack: (e: React.MouseEvent) => void
-  onNext: (e: React.MouseEvent) => void
+  onBack: (e?: React.MouseEvent) => void
+  onNext: (e?: React.MouseEvent) => void
   onCancel: () => void
   isNextDisabled?: boolean
   isLastStep?: boolean
+  isSubmitting?: boolean
 }
 
 export function FormNavigation({
@@ -20,25 +21,26 @@ export function FormNavigation({
   onCancel,
   isNextDisabled = false,
   isLastStep = false,
+  isSubmitting = false,
 }: FormNavigationProps) {
   return (
     <div className="flex justify-between mt-4">
       {activeTab !== "idea" ? (
-        <Button type="button" variant="outline" size="sm" onClick={onBack}>
+        <Button type="button" variant="outline" size="sm" onClick={onBack} disabled={isSubmitting}>
           Back
         </Button>
       ) : (
-        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+        <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={isSubmitting}>
           Back to Selection
         </Button>
       )}
 
       {!isLastStep ? (
-        <Button type="button" size="sm" onClick={onNext} disabled={isNextDisabled}>
+        <Button type="button" size="sm" onClick={onNext} disabled={isNextDisabled || isSubmitting}>
           Next
         </Button>
       ) : (
-        <Button type="submit" size="sm">
+        <Button type="submit" size="sm" disabled={isSubmitting}>
           Submit
         </Button>
       )}
