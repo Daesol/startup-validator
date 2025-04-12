@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { Loader2 } from "lucide-react"
+import { Loader2, CheckCircle2 } from "lucide-react"
 import { useEffect, useState } from "react"
 
 const analysisSteps = [
@@ -34,6 +34,7 @@ export function LoadingPage({ onComplete }: { onComplete?: () => void }) {
   const [progress, setProgress] = useState(0)
   const [currentStep, setCurrentStep] = useState(0)
   const [isPaused, setIsPaused] = useState(false)
+  const [completedSteps, setCompletedSteps] = useState<number[]>([])
 
   // This effect handles the progress animation with random speed variations and pause at 85%
   useEffect(() => {
@@ -54,6 +55,13 @@ export function LoadingPage({ onComplete }: { onComplete?: () => void }) {
         
         const nextValue = prev + adjustedIncrement
         
+        // Mark steps as completed as progress increases
+        const stepValue = (prev / 100) * analysisSteps.length
+        const currentStepIndex = Math.floor(stepValue)
+        if (currentStepIndex < analysisSteps.length && !completedSteps.includes(currentStepIndex)) {
+          setCompletedSteps(prev => [...prev, currentStepIndex])
+        }
+        
         if (nextValue >= 85) {
           clearInterval(interval)
           return 85
@@ -64,7 +72,7 @@ export function LoadingPage({ onComplete }: { onComplete?: () => void }) {
     }, 100)
 
     return () => clearInterval(interval)
-  }, [progress, isPaused])
+  }, [progress, isPaused, completedSteps])
 
   // This effect handles the step changes
   useEffect(() => {
@@ -91,6 +99,7 @@ export function LoadingPage({ onComplete }: { onComplete?: () => void }) {
         setProgress((prev) => {
           if (prev >= 100) {
             clearInterval(interval)
+            setCompletedSteps([0, 1, 2, 3, 4]) // Mark all steps as completed
             if (onComplete) {
               setTimeout(onComplete, 500)
             }
@@ -113,26 +122,68 @@ export function LoadingPage({ onComplete }: { onComplete?: () => void }) {
     };
   }, [isPaused, progress, onComplete]);
 
+  // Get title based on progress
+  const getTitle = () => {
+    if (progress >= 85) {
+      return "Polishing Validation Report"
+    }
+    return "Analyzing Your Startup"
+  }
+
   return (
-    <Card className="p-6 max-w-2xl mx-auto">
-      <div className="space-y-6">
-        <h2 className="text-2xl font-bold text-center">Analyzing Your Startup</h2>
-        <p className="text-center text-muted-foreground">
-          We're conducting a comprehensive analysis of your startup. This may take a few moments.
-        </p>
-        
-        <div className="space-y-4">
-          <div className="flex items-center space-x-4">
-            <div className="flex-shrink-0">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium">{analysisSteps[currentStep]}</p>
-              <Progress value={progress} className="mt-2 h-3" />
-            </div>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-secondary/10 p-4">
+      <Card className="p-6 max-w-2xl mx-auto border-primary/20 shadow-lg shadow-primary/5">
+        <div className="space-y-8">
+          <div className="text-center space-y-2">
+            <h2 className="text-2xl font-bold text-primary">{getTitle()}</h2>
+            <p className="text-muted-foreground">
+              We're conducting a comprehensive analysis of your startup. This may take a few moments.
+            </p>
+          </div>
+          
+          <div className="relative">
+            <Progress 
+              value={progress} 
+              className="h-3 bg-secondary [&>div]:bg-gradient-to-r [&>div]:from-primary/80 [&>div]:to-primary" 
+            />
+            <p className="text-sm text-muted-foreground text-right mt-1">
+              {Math.round(progress)}%
+            </p>
+          </div>
+          
+          <div className="space-y-4 bg-secondary/20 rounded-lg p-4">
+            {analysisSteps.map((step, index) => {
+              const isActive = index === currentStep;
+              const isCompleted = completedSteps.includes(index);
+              const isNext = index === currentStep + 1;
+              
+              return (
+                <div 
+                  key={step} 
+                  className={`flex items-center space-x-4 p-2 rounded-md transition-all duration-300 ${
+                    isActive ? 'bg-primary/10' : isCompleted ? 'opacity-100' : 'opacity-50'
+                  }`}
+                >
+                  <div className="flex-shrink-0">
+                    {isCompleted ? (
+                      <CheckCircle2 className="h-5 w-5 text-primary" />
+                    ) : isActive ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    ) : (
+                      <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <p className={`text-sm font-medium ${isActive ? 'text-primary' : ''}`}>
+                      {step}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
-      </div>
-    </Card>
+      </Card>
+    </div>
   )
 } 
