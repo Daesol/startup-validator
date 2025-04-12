@@ -148,7 +148,7 @@ Team:
 - Size: ${fullFormData.teamSize || "Not specified"}
 - Co-founders: ${fullFormData.coFounderCount || "Not specified"}
 ${fullFormData.teamMembers?.map(member => 
-  `- ${member.name}: ${member.role} - ${member.experience}`
+  `- ${member.person}: ${member.skills.join(", ")}`
 ).join("\n") || ""}
 
 Funding:
