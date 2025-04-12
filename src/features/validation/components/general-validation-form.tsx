@@ -35,7 +35,6 @@ export function GeneralValidationForm() {
     e.preventDefault()
     setSubmitAttempted(true)
 
-    // Don't submit if the form is not valid
     if (!formData.businessIdea.trim()) {
       return
     }
@@ -43,27 +42,24 @@ export function GeneralValidationForm() {
     setIsSubmitting(true)
 
     try {
-      // Call the server action directly
-      const result = await submitGeneralForm({
-        businessIdea: formData.businessIdea,
-        websiteUrl: formData.websiteUrl || "",
-      })
+      const result = await submitGeneralForm(formData)
 
       if (!result.success) {
         toast({
           title: "Error",
-          description: result.message,
+          description: result.message || "Failed to submit form. Please try again.",
           variant: "destructive",
         })
         return
       }
 
-      // The server action will handle the redirect
+      // The redirect will be handled by the server action
+      // No need to do anything here as the redirect will happen automatically
     } catch (error) {
       console.error("Error submitting form:", error)
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "An unexpected error occurred. Please try again.",
+        description: "An unexpected error occurred. Please try again.",
         variant: "destructive",
       })
     } finally {

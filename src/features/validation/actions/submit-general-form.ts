@@ -29,12 +29,26 @@ export async function submitGeneralForm(formData: {
       }
     }
 
-    // Revalidate the path to ensure fresh data
-    revalidatePath("/validate/report/[id]")
+    // Ensure we have a form ID
+    if (!result.formId) {
+      return {
+        success: false,
+        message: "No form ID returned from save operation",
+      }
+    }
+
+    // Revalidate the specific path
+    revalidatePath(`/validate/report/${result.formId}`, 'page')
 
     // Redirect to the report page
-    redirect(`/validate/report/${result.formId}`)
+    // Using throw redirect to ensure the redirect happens
+    throw redirect(`/validate/report/${result.formId}`)
   } catch (error) {
+    // If it's a redirect, re-throw it
+    if (error instanceof Error && error.message.includes('NEXT_REDIRECT')) {
+      throw error
+    }
+
     console.error("Error submitting form:", error)
     return {
       success: false,
