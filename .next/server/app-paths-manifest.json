@@ -1,6 +1,3 @@
 {
-  "/page": "app/page.js",
-  "/validate/page": "app/validate/page.js",
-  "/validate/vc-validation/page": "app/validate/vc-validation/page.js",
   "/validate/vc-report/[id]/page": "app/validate/vc-report/[id]/page.js"
 }

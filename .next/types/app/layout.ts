@@ -1,4 +1,4 @@
-// File: /Users/tammyartawong/Documents/Foundr Club/startup-validator/src/app/layout.tsx
+// File: /Users/artfct/Documents/Software Business/startup-validator/src/app/layout.tsx
 import * as entry from '../../../src/app/layout.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
