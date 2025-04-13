@@ -3,9 +3,18 @@ import { createServerSupabaseClient } from "@/lib/supabase/server"
 import { analyzeBusiness } from "@/lib/ai/business-analyzer"
 import { validationFormSchema } from "@/features/validation/schemas/validation-form-schema"
 
+// Maximum number of retries for AI analysis
+const MAX_RETRIES = 2
+
 export async function POST(request: Request) {
   try {
     const supabase = createServerSupabaseClient()
+    if (!supabase) {
+      return NextResponse.json(
+        { error: "Failed to initialize database connection" },
+        { status: 500 }
+      )
+    }
     
     // Parse FormData
     const formData = await request.formData()
@@ -49,7 +58,7 @@ export async function POST(request: Request) {
       teamMembers: [],
     }
 
-    // First, save the form data
+    // First, save the form data to get an ID
     const { data: formRecord, error: formError } = await supabase
       .from("validation_forms")
       .insert({
@@ -92,9 +101,9 @@ export async function POST(request: Request) {
 
     // Save team members if any
     if (formData.getAll("teamMembers").length > 0) {
-      const teamMembersToInsert = formData.getAll("teamMembers").map((member: string) => ({
+      const teamMembersToInsert = formData.getAll("teamMembers").map((member) => ({
         validation_form_id: formRecord.id,
-        person: member,
+        person: member as string,
         skills: [],
       }))
 
@@ -108,24 +117,74 @@ export async function POST(request: Request) {
       }
     }
 
-    // Perform AI analysis
-    const analysis = await analyzeBusiness(formDataForAnalysis)
-
-    // Save the analysis results
-    const { error: analysisError } = await supabase
+    // Create an empty analysis record first to indicate we're processing
+    const { error: emptyAnalysisError } = await supabase
       .from("validation_analyses")
       .insert({
         validation_form_id: formRecord.id,
+        market_analysis: {},
+        business_model: {},
+        team_strength: {},
+        overall_assessment: {},
+        report_data: null
+      })
+
+    if (emptyAnalysisError) {
+      console.error("Error creating empty analysis:", emptyAnalysisError)
+      // Continue anyway to try the analysis
+    }
+
+    // Perform AI analysis with retries
+    let analysis = null
+    let lastError = null
+    
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        // If not the first attempt, add a small delay
+        if (attempt > 0) {
+          await new Promise(resolve => setTimeout(resolve, 2000 * attempt)) // Exponential backoff
+        }
+        
+        analysis = await analyzeBusiness(formDataForAnalysis)
+        if (analysis) break // Successfully got analysis, exit retry loop
+      } catch (error) {
+        console.error(`Analysis attempt ${attempt + 1} failed:`, error)
+        lastError = error
+      }
+    }
+    
+    // If all attempts failed, return error but keep the form ID
+    if (!analysis) {
+      return NextResponse.json(
+        { 
+          error: "Failed to analyze business idea after multiple attempts", 
+          details: lastError instanceof Error ? lastError.message : "Unknown error",
+          formId: formRecord.id // Return the form ID anyway so client can retry later
+        },
+        { status: 500 }
+      )
+    }
+
+    // Update the analysis record with actual data
+    const { error: analysisError } = await supabase
+      .from("validation_analyses")
+      .update({
         market_analysis: analysis.market_analysis,
         business_model: analysis.business_model,
         team_strength: analysis.team_strength,
         overall_assessment: analysis.overall_assessment,
+        report_data: analysis.report_data || null
       })
+      .eq("validation_form_id", formRecord.id)
 
     if (analysisError) {
       console.error("Error saving analysis:", analysisError)
       return NextResponse.json(
-        { error: "Failed to save analysis", details: analysisError.message },
+        { 
+          error: "Failed to save analysis", 
+          details: analysisError.message,
+          formId: formRecord.id // Return the form ID anyway
+        },
         { status: 500 }
       )
     }

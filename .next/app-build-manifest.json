@@ -11,40 +11,25 @@
       "static/chunks/main-app.js",
       "static/chunks/app/not-found.js"
     ],
-    "/page": [
+    "/validate/vc-report/[id]/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/page.js"
-    ],
-    "/admin/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/admin/page.js"
+      "static/chunks/app/validate/vc-report/[id]/page.js"
     ],
     "/validate/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/validate/page.js"
     ],
-    "/validate/advance/page": [
+    "/validate/vc-validation/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/validate/advance/page.js"
+      "static/chunks/app/validate/vc-validation/page.js"
     ],
-    "/validate/general/page": [
+    "/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/validate/general/page.js"
-    ],
-    "/validate/report/[id]/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/validate/report/[id]/page.js"
-    ],
-    "/validate/report/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/validate/report/page.js"
+      "static/chunks/app/page.js"
     ]
   }
 }

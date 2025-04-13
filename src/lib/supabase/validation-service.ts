@@ -9,7 +9,7 @@ import type { Database } from './database.types'
 // Client-side functions
 export async function saveValidationForm(
   formData: ValidationFormValues | { businessIdea: string; websiteUrl?: string },
-  formType: "general" | "advanced" = "general",
+  formType: "general" | "advanced" | "vc_validation" = "general",
   analysis?: AnalysisResult
 ): Promise<{ success: boolean; formId?: string; error?: string }> {
   try {
@@ -91,6 +91,7 @@ export async function saveValidationForm(
             business_model: analysis.business_model,
             team_strength: analysis.team_strength,
             overall_assessment: analysis.overall_assessment,
+            report_data: analysis.report_data || null,
             updated_at: new Date().toISOString()
           })
           .eq("validation_form_id", form.id)
@@ -108,7 +109,8 @@ export async function saveValidationForm(
             market_analysis: analysis.market_analysis,
             business_model: analysis.business_model,
             team_strength: analysis.team_strength,
-            overall_assessment: analysis.overall_assessment
+            overall_assessment: analysis.overall_assessment,
+            report_data: analysis.report_data || null
           })
 
         if (analysisError) {
@@ -218,5 +220,59 @@ export async function clearValidationTables(): Promise<{ success: boolean; error
   } catch (error) {
     console.error("Error in clearValidationTables:", error)
     return { success: false, error: "An unexpected error occurred" }
+  }
+}
+
+// Add this utility function to check if an analysis is complete
+export async function checkAnalysisStatus(validationFormId: string): Promise<{
+  exists: boolean;
+  isComplete: boolean;
+  error?: string;
+}> {
+  try {
+    const supabase = createBrowserClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    
+    // Check if the analysis entry exists
+    const { data, error } = await supabase
+      .from("validation_analyses")
+      .select("overall_assessment")
+      .eq("validation_form_id", validationFormId)
+      .maybeSingle()
+      
+    if (error && error.code !== 'PGRST116') {
+      return { 
+        exists: false,
+        isComplete: false,
+        error: error.message
+      }
+    }
+    
+    // If no data found, the analysis hasn't been created yet
+    if (!data) {
+      return {
+        exists: false,
+        isComplete: false
+      }
+    }
+    
+    // Check if the analysis has a completed overall assessment
+    const isComplete = !!data.overall_assessment && 
+                      typeof data.overall_assessment === 'object' &&
+                      'viability_score' in data.overall_assessment
+    
+    return {
+      exists: true,
+      isComplete
+    }
+  } catch (error) {
+    console.error("Error checking analysis status:", error)
+    return {
+      exists: false,
+      isComplete: false,
+      error: error instanceof Error ? error.message : "Unknown error checking analysis status"
+    }
   }
 }
