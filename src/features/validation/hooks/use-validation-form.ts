@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation"
 import { validationFormSchema, type ValidationFormValues } from "../schemas/validation-form-schema"
 import { saveValidationForm } from "@/lib/supabase/validation-service"
 import { toast } from "@/components/ui/use-toast"
-import { submitAdvanceForm } from "../actions/submit-advance-form"
+import { submitAdvancedForm } from "../actions/submit-advanced-form"
 
 export function useValidationForm() {
   const router = useRouter()
@@ -168,7 +168,7 @@ export function useValidationForm() {
     setIsSubmitting(true)
 
     try {
-      await submitAdvanceForm(data)
+      await submitAdvancedForm(data)
       // The redirect will be handled by the server action
       // We don't need to do anything here as the server will handle the redirect
     } catch (error) {

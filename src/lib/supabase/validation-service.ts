@@ -276,3 +276,40 @@ export async function checkAnalysisStatus(validationFormId: string): Promise<{
     }
   }
 }
+
+// Add the missing function for fetching validation form with team members
+export async function getValidationFormWithTeamMembers(id: string): Promise<ValidationWithTeamMembers | null> {
+  const supabaseServer = createServerSupabaseClient()
+  if (!supabaseServer) {
+    console.error("Failed to create Supabase client")
+    return null
+  }
+
+  // Get the validation form
+  const { data: form, error: formError } = await supabaseServer
+    .from("validation_forms")
+    .select("*")
+    .eq("id", id)
+    .single()
+
+  if (formError) {
+    console.error("Error fetching validation form:", formError)
+    return null
+  }
+
+  // Get team members
+  const { data: teamMembers, error: teamError } = await supabaseServer
+    .from("team_members")
+    .select("*")
+    .eq("validation_form_id", id)
+
+  if (teamError) {
+    console.error("Error fetching team members:", teamError)
+    // Continue with empty team members
+  }
+
+  return {
+    ...form,
+    team_members: teamMembers || []
+  } as ValidationWithTeamMembers
+}
