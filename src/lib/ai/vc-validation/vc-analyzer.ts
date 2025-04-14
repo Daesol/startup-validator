@@ -42,8 +42,15 @@ export async function runVCValidation(
   partial_completion?: boolean;
   warning?: string;
 }> {
+  // Time-tracking for log messages - defined outside try block for error handling
+  const startTime = Date.now();
+  const logTimeSince = () => {
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    return `[${elapsed}s]`;
+  };
+  
   try {
-    console.log("Starting VC validation for business idea:", businessIdea.substring(0, 100));
+    console.log(`${logTimeSince()} Starting VC validation for business idea:`, businessIdea.substring(0, 100));
     
     // Trim and clean business idea
     const cleanBusinessIdea = businessIdea.trim();
@@ -87,9 +94,12 @@ export async function runVCValidation(
     const completedAgents: VCAgentType[] = [];
     const failedAgents: VCAgentType[] = [];
     
+    // Set a timeout for each agent
+    const timeoutDuration = 20000; // 20 seconds per agent
+    
     // 1. Problem Specialist - "The Diagnostician"
     try {
-      console.log("Starting Problem Agent analysis");
+      console.log(`${logTimeSince()} Starting Problem Agent analysis`);
       const problemAnalysis = await runProblemAgentAnalysis(context);
       agentAnalyses.problem = problemAnalysis;
       context = {
@@ -97,42 +107,119 @@ export async function runVCValidation(
         problem_analysis: problemAnalysis,
         enhanced_problem_statement: problemAnalysis.improved_problem_statement
       };
-      console.log("Problem analysis completed, score:", problemAnalysis.score);
+      console.log(`${logTimeSince()} Problem analysis completed, score:`, problemAnalysis.score);
       completedAgents.push('problem');
       if (onAgentComplete) await onAgentComplete('problem', problemAnalysis);
     } catch (error) {
       const errorMsg = `Problem Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      console.error(errorMsg);
+      console.error(`${logTimeSince()} ${errorMsg}`);
       failedAgents.push('problem');
       
       // For the problem agent specifically, we need to add a minimal problem statement to continue
       context.enhanced_problem_statement = cleanBusinessIdea;
+      
+      // Create a basic fallback and attempt to save it (needed for UI progress)
+      try {
+        const fallbackAnalysis = {
+          improved_problem_statement: cleanBusinessIdea,
+          severity_index: 5,
+          problem_framing: 'global',
+          root_causes: ["Analysis could not be completed"],
+          score: 5,
+          reasoning: "Generated a basic analysis with default values."
+        };
+        
+        if (onAgentComplete) await onAgentComplete('problem', fallbackAnalysis);
+      } catch (saveError) {
+        console.error(`${logTimeSince()} Failed to save fallback problem analysis:`, saveError);
+      }
       
       // Don't return early, try to continue with other agents
     }
     
     // 2. Market Specialist - "The Opportunity Validator"
     try {
-      console.log("Starting Market Agent analysis");
+      console.log(`${logTimeSince()} Starting Market Agent analysis`);
       const marketAnalysis = await runMarketAgentAnalysis(context);
       agentAnalyses.market = marketAnalysis;
       context = {
         ...context,
         market_analysis: marketAnalysis
       };
-      console.log("Market analysis completed, score:", marketAnalysis.score);
+      console.log(`${logTimeSince()} Market analysis completed, score:`, marketAnalysis.score);
       completedAgents.push('market');
       if (onAgentComplete) await onAgentComplete('market', marketAnalysis);
     } catch (error) {
       const errorMsg = `Market Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      console.error(errorMsg);
+      console.error(`${logTimeSince()} ${errorMsg}`);
       failedAgents.push('market');
+      
+      // Create a fallback market analysis
+      try {
+        const fallbackAnalysis = {
+          tam: 1000000000, // $1B
+          sam: 300000000,  // $300M 
+          som: 30000000,   // $30M
+          growth_rate: "Unknown, estimated 10-15%",
+          market_demand: "Unable to determine precisely",
+          why_now: "Current market conditions may be suitable", 
+          score: 5,
+          reasoning: "Generated a basic analysis with default values."
+        };
+        
+        if (onAgentComplete) await onAgentComplete('market', fallbackAnalysis);
+      } catch (saveError) {
+        console.error(`${logTimeSince()} Failed to save fallback market analysis:`, saveError);
+      }
+      
       // Continue with other agents
+    }
+    
+    // If we've been running for too long already, skip to generating a basic report
+    const timeElapsed = Date.now() - startTime;
+    const timeLimitExceeded = timeElapsed > 60000; // 60 seconds
+    
+    if (timeLimitExceeded) {
+      console.log(`${logTimeSince()} Time limit exceeded (${Math.round(timeElapsed/1000)}s elapsed). Skipping to report generation.`);
+      
+      // Generate a simple report from what we have
+      const basicReport: VCReport = {
+        overall_score: 60,
+        business_type: "Startup",
+        weighted_scores: {},
+        category_scores: {},
+        recommendation: "Based on limited analysis, your idea appears to have merit but requires further validation.",
+        strengths: ["Business idea provided for analysis"],
+        weaknesses: ["Complete analysis could not be performed due to time constraints"],
+        suggested_actions: ["Try again with a more detailed business description", "Consider the standard validation process"],
+        idea_improvements: {
+          original_idea: cleanBusinessIdea,
+          improved_idea: context.enhanced_problem_statement || cleanBusinessIdea,
+          problem_statement: "See original idea",
+          market_positioning: "",
+          uvp: "",
+          business_model: ""
+        },
+        partial_completion: true,
+        completed_agents: completedAgents,
+        failed_agents: failedAgents,
+        generation_method: "partial_timeout",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      return {
+        success: true,
+        vc_report: basicReport,
+        agent_analyses: agentAnalyses as Record<VCAgentType, any>,
+        partial_completion: true,
+        warning: "Processing time limit exceeded. Returning partial results."
+      };
     }
     
     // 3. Competitive Specialist - "The Moat Evaluator"
     try {
-      console.log("Starting Competitive Agent analysis");
+      console.log(`${logTimeSince()} Starting Competitive Agent analysis`);
       const competitiveAnalysis = await runCompetitiveAgentAnalysis(context);
       agentAnalyses.competitive = competitiveAnalysis;
       context = {
@@ -140,19 +227,19 @@ export async function runVCValidation(
         competitive_analysis: competitiveAnalysis,
         strengthened_differentiation: competitiveAnalysis.differentiation
       };
-      console.log("Competitive analysis completed, score:", competitiveAnalysis.score);
+      console.log(`${logTimeSince()} Competitive analysis completed, score:`, competitiveAnalysis.score);
       completedAgents.push('competitive');
       if (onAgentComplete) await onAgentComplete('competitive', competitiveAnalysis);
     } catch (error) {
       const errorMsg = `Competitive Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      console.error(errorMsg);
+      console.error(`${logTimeSince()} ${errorMsg}`);
       failedAgents.push('competitive');
       // Continue with other agents
     }
     
     // 4. UVP Specialist - "The Message Refiner"
     try {
-      console.log("Starting UVP Agent analysis");
+      console.log(`${logTimeSince()} Starting UVP Agent analysis`);
       const uvpAnalysis = await runUVPAgentAnalysis(context);
       agentAnalyses.uvp = uvpAnalysis;
       context = {
@@ -160,19 +247,19 @@ export async function runVCValidation(
         uvp_analysis: uvpAnalysis,
         refined_uvp: uvpAnalysis.one_liner
       };
-      console.log("UVP analysis completed, score:", uvpAnalysis.score);
+      console.log(`${logTimeSince()} UVP analysis completed, score:`, uvpAnalysis.score);
       completedAgents.push('uvp');
       if (onAgentComplete) await onAgentComplete('uvp', uvpAnalysis);
     } catch (error) {
       const errorMsg = `UVP Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      console.error(errorMsg);
+      console.error(`${logTimeSince()} ${errorMsg}`);
       failedAgents.push('uvp');
       // Continue with other agents
     }
     
     // 5. Business Model Specialist - "The Monetization Analyst"
     try {
-      console.log("Starting Business Model Agent analysis");
+      console.log(`${logTimeSince()} Starting Business Model Agent analysis`);
       const businessModelAnalysis = await runBusinessModelAgentAnalysis(context);
       agentAnalyses.business_model = businessModelAnalysis;
       context = {
@@ -180,19 +267,19 @@ export async function runVCValidation(
         business_model_analysis: businessModelAnalysis,
         revenue_model: businessModelAnalysis.revenue_model
       };
-      console.log("Business model analysis completed, score:", businessModelAnalysis.score);
+      console.log(`${logTimeSince()} Business model analysis completed, score:`, businessModelAnalysis.score);
       completedAgents.push('business_model');
       if (onAgentComplete) await onAgentComplete('business_model', businessModelAnalysis);
     } catch (error) {
       const errorMsg = `Business Model Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      console.error(errorMsg);
+      console.error(`${logTimeSince()} ${errorMsg}`);
       failedAgents.push('business_model');
       // Continue with other agents
     }
     
     // 6. Validation Specialist - "The Signal Seeker"
     try {
-      console.log("Starting Validation Agent analysis");
+      console.log(`${logTimeSince()} Starting Validation Agent analysis`);
       const validationAnalysis = await runValidationAgentAnalysis(context);
       agentAnalyses.validation = validationAnalysis;
       context = {
@@ -200,19 +287,19 @@ export async function runVCValidation(
         validation_analysis: validationAnalysis,
         validation_suggestions: validationAnalysis.validation_suggestions
       };
-      console.log("Validation analysis completed, score:", validationAnalysis.score);
+      console.log(`${logTimeSince()} Validation analysis completed, score:`, validationAnalysis.score);
       completedAgents.push('validation');
       if (onAgentComplete) await onAgentComplete('validation', validationAnalysis);
     } catch (error) {
       const errorMsg = `Validation Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      console.error(errorMsg);
+      console.error(`${logTimeSince()} ${errorMsg}`);
       failedAgents.push('validation');
       // Continue with other agents
     }
     
     // 7. Legal Specialist - "The Compliance Evaluator"
     try {
-      console.log("Starting Legal Agent analysis");
+      console.log(`${logTimeSince()} Starting Legal Agent analysis`);
       const legalAnalysis = await runLegalAgentAnalysis(context);
       agentAnalyses.legal = legalAnalysis;
       context = {
@@ -220,38 +307,38 @@ export async function runVCValidation(
         legal_analysis: legalAnalysis,
         risk_tags: legalAnalysis.risk_tags
       };
-      console.log("Legal analysis completed, score:", legalAnalysis.score);
+      console.log(`${logTimeSince()} Legal analysis completed, score:`, legalAnalysis.score);
       completedAgents.push('legal');
       if (onAgentComplete) await onAgentComplete('legal', legalAnalysis);
     } catch (error) {
       const errorMsg = `Legal Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      console.error(errorMsg);
+      console.error(`${logTimeSince()} ${errorMsg}`);
       failedAgents.push('legal');
       // Continue with other agents
     }
     
     // 8. Strategic Metrics Specialist - "The Quantifier"
     try {
-      console.log("Starting Metrics Agent analysis");
+      console.log(`${logTimeSince()} Starting Metrics Agent analysis`);
       const metricsAnalysis = await runMetricsAgentAnalysis(context);
       agentAnalyses.metrics = metricsAnalysis;
       context = {
         ...context,
         metrics_analysis: metricsAnalysis
       };
-      console.log("Metrics analysis completed, score:", metricsAnalysis.score);
+      console.log(`${logTimeSince()} Metrics analysis completed, score:`, metricsAnalysis.score);
       completedAgents.push('metrics');
       if (onAgentComplete) await onAgentComplete('metrics', metricsAnalysis);
     } catch (error) {
       const errorMsg = `Metrics Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      console.error(errorMsg);
+      console.error(`${logTimeSince()} ${errorMsg}`);
       failedAgents.push('metrics');
       // Continue with other agents
     }
     
     // Check if we have enough completed agents to generate a meaningful report
     const completionRate = completedAgents.length / 8; // 8 total agents
-    console.log(`Agent completion rate: ${(completionRate * 100).toFixed(1)}% (${completedAgents.length}/8 agents completed)`);
+    console.log(`${logTimeSince()} Agent completion rate: ${(completionRate * 100).toFixed(1)}% (${completedAgents.length}/8 agents completed)`);
     
     if (completedAgents.length === 0) {
       // If all agents failed, we can't generate a report
@@ -269,11 +356,11 @@ export async function runVCValidation(
     
     // Final VC Lead Agent - Synthesis and Report Generation
     try {
-      console.log("Starting VC Lead synthesis");
+      console.log(`${logTimeSince()} Starting VC Lead synthesis`);
       
       // If some agents failed but we have enough data, continue with synthesis
       if (failedAgents.length > 0) {
-        console.log(`Proceeding with VC Lead synthesis with ${completedAgents.length}/8 completed agents.`);
+        console.log(`${logTimeSince()} Proceeding with VC Lead synthesis with ${completedAgents.length}/8 completed agents.`);
       }
       
       const vcReport = await runVCLeadSynthesis(context, agentAnalyses as Record<VCAgentType, any>);
@@ -292,7 +379,7 @@ export async function runVCValidation(
           : "Final synthesis of all agent analyses"
       };
       
-      console.log("VC Lead synthesis completed, overall score:", vcReport.overall_score);
+      console.log(`${logTimeSince()} VC Lead synthesis completed, overall score:`, vcReport.overall_score);
       
       return {
         success: true,
@@ -303,13 +390,13 @@ export async function runVCValidation(
       };
     } catch (error) {
       const errorMsg = `VC Lead synthesis failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      console.error(errorMsg);
+      console.error(`${logTimeSince()} ${errorMsg}`);
       
       // If VC Lead synthesis fails, but we have completed agents,
       // generate a simple aggregated report instead
       if (completedAgents.length > 0) {
         try {
-          console.log("Generating fallback report from completed agent analyses");
+          console.log(`${logTimeSince()} Generating fallback report from completed agent analyses`);
           
           // Calculate an average score
           let totalScore = 0;
@@ -376,7 +463,7 @@ export async function runVCValidation(
             warning: "Used fallback report generation due to synthesis failure"
           };
         } catch (fallbackError) {
-          console.error("Fallback report generation failed:", fallbackError);
+          console.error(`${logTimeSince()} Fallback report generation failed:`, fallbackError);
         }
       }
       
@@ -395,7 +482,7 @@ export async function runVCValidation(
     }
     
   } catch (error) {
-    console.error("Error in VC validation process:", error);
+    console.error(`${logTimeSince()} Error in VC validation process:`, error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error in VC validation process",
@@ -425,12 +512,19 @@ async function runProblemAgentAnalysis(context: Record<string, any>): Promise<Pr
 
     console.log("Sending request to OpenAI...");
     
+    // Create a timeout promise
+    const timeoutDuration = 15000; // 15 seconds
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`OpenAI API call timed out after ${timeoutDuration}ms`)), timeoutDuration);
+    });
+    
     try {
       // Try with a more stable model first
       const model = "gpt-3.5-turbo";
       console.log(`Using OpenAI model: ${model}`);
       
-      const completion = await openai.chat.completions.create({
+      // Create the API call promise
+      const apiCallPromise = openai.chat.completions.create({
         model: model,
         messages: [
           { role: "system", content: systemPrompt },
@@ -439,6 +533,9 @@ async function runProblemAgentAnalysis(context: Record<string, any>): Promise<Pr
         temperature: 0.2,
         response_format: { type: "json_object" }
       });
+      
+      // Race the API call against the timeout
+      const completion = await Promise.race([apiCallPromise, timeoutPromise]);
       
       console.log("OpenAI response received, processing response...");
       
@@ -494,21 +591,34 @@ async function runProblemAgentAnalysis(context: Record<string, any>): Promise<Pr
         throw new Error(`JSON parsing error: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
       }
     } catch (openaiError) {
-      console.error("OpenAI API error details:", {
-        message: openaiError instanceof Error ? openaiError.message : String(openaiError),
-        name: openaiError instanceof Error ? openaiError.name : 'Unknown',
-        stack: openaiError instanceof Error ? openaiError.stack : 'No stack available'
-      });
+      // Check if this is a timeout error
+      const errorIsTimeout = openaiError instanceof Error && 
+        (openaiError.message.includes('timed out') || openaiError.message.includes('timeout'));
       
-      // Generate a fallback analysis rather than failing
+      if (errorIsTimeout) {
+        console.error("OpenAI API call timed out. Generating fallback analysis.");
+      } else {
+        console.error("OpenAI API error details:", {
+          message: openaiError instanceof Error ? openaiError.message : String(openaiError),
+          name: openaiError instanceof Error ? openaiError.name : 'Unknown',
+          stack: openaiError instanceof Error ? openaiError.stack : 'No stack available'
+        });
+      }
+      
+      // Generate a fallback analysis
       console.log("Generating fallback analysis due to OpenAI API error");
+      
+      // Create a simple problem statement by extracting key information from the business idea
+      const words = context.user_input.split(' ');
+      const shortStatement = words.slice(0, 15).join(' ') + (words.length > 15 ? '...' : '');
+      
       return {
-        improved_problem_statement: context.user_input,
+        improved_problem_statement: `Problem: ${shortStatement}`,
         severity_index: 5,
         problem_framing: 'global',
-        root_causes: ["Unable to analyze due to API limitations"],
+        root_causes: ["Analysis unavailable due to service limitations"],
         score: 5,
-        reasoning: "Due to temporary service limitations, we've provided a basic analysis. Your idea appears to address a legitimate problem worth exploring."
+        reasoning: "Analysis could not be completed due to service limitations. We've provided a simplified assessment of your business idea."
       };
     }
   } catch (error) {
@@ -520,7 +630,7 @@ async function runProblemAgentAnalysis(context: Record<string, any>): Promise<Pr
       severity_index: 5,
       problem_framing: 'global',
       root_causes: [`Unable to analyze due to error: ${error instanceof Error ? error.message : 'Unknown error'}`],
-      score: 3,
+      score: 5,
       reasoning: `Analysis failed due to technical issues: ${error instanceof Error ? error.message : 'Unknown error'}`
     };
     
@@ -530,111 +640,159 @@ async function runProblemAgentAnalysis(context: Record<string, any>): Promise<Pr
 }
 
 async function runMarketAgentAnalysis(context: Record<string, any>): Promise<MarketAnalysis> {
-  const prompt = getMarketAgentPrompt(context);
-  
-  // Extract the business idea for logging
-  const businessIdea = context.user_input || "";
-  console.log(`Market agent analyzing business context (enhanced problem: ${context.enhanced_problem_statement?.substring(0, 50) || "None"}...)`);
-  
-  // Define maximum retries
-  const MAX_RETRIES = 2;
-  let retryCount = 0;
-  let lastError: Error | null = null;
-  
-  // Retry loop for API calls
-  while (retryCount <= MAX_RETRIES) {
-    try {
-      // If this isn't the first attempt, log that we're retrying
-      if (retryCount > 0) {
-        console.log(`Retrying Market Agent analysis (attempt ${retryCount}/${MAX_RETRIES})`);
-      }
-      
-      const response = await openai.chat.completions.create({
-        model: retryCount === 0 ? "gpt-4-turbo-preview" : "gpt-3.5-turbo-1106", // Try with GPT-4 first, fallback to 3.5
-        messages: [
-          {
-            role: "system",
-            content: "You are the Market Specialist Agent (The Opportunity Validator). Your role is to analyze market size, growth potential, and validate the market opportunity."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.5,
-        response_format: { type: "json_object" }
-      });
-      
-      const content = response.choices[0].message.content;
-      if (!content) {
-        throw new Error("No response from Market Agent");
-      }
-      
-      // Try to parse the response as JSON, with error handling
+  try {
+    const prompt = getMarketAgentPrompt(context);
+    
+    // Extract the business idea for logging
+    const businessIdea = context.user_input || "";
+    console.log(`Market agent analyzing business context (enhanced problem: ${context.enhanced_problem_statement?.substring(0, 50) || "None"}...)`);
+    
+    // Log API key presence
+    const apiKey = process.env.OPENAI_API_KEY;
+    console.log(`OpenAI API key status: ${apiKey ? 'Present' : 'MISSING'}`);
+    
+    // Create a timeout promise
+    const timeoutDuration = 15000; // 15 seconds
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`Market agent API call timed out after ${timeoutDuration}ms`)), timeoutDuration);
+    });
+    
+    // Define maximum retries
+    const MAX_RETRIES = 1;
+    let retryCount = 0;
+    let lastError: Error | null = null;
+    
+    // Retry loop for API calls
+    while (retryCount <= MAX_RETRIES) {
       try {
-        const analysis = JSON.parse(content) as MarketAnalysis;
-        
-        // Validate the minimal required fields exist
-        if (typeof analysis.tam !== 'number' || isNaN(analysis.tam)) {
-          analysis.tam = 1000000000; // Default $1B
-        }
-        if (typeof analysis.sam !== 'number' || isNaN(analysis.sam)) {
-          analysis.sam = analysis.tam * 0.3; // Default 30% of TAM
-        }
-        if (typeof analysis.som !== 'number' || isNaN(analysis.som)) {
-          analysis.som = analysis.sam * 0.1; // Default 10% of SAM
-        }
-        if (!analysis.growth_rate) {
-          analysis.growth_rate = "10-15% annually";
-        }
-        if (!analysis.market_demand) {
-          analysis.market_demand = "Moderate demand with growing interest";
-        }
-        if (!analysis.why_now) {
-          analysis.why_now = "Current market conditions are favorable for this solution";
-        }
-        if (!analysis.score || typeof analysis.score !== 'number') {
-          analysis.score = 65; // Default score
-        }
-        if (!analysis.reasoning) {
-          analysis.reasoning = "Analysis completed with default values";
+        // If this isn't the first attempt, log that we're retrying
+        if (retryCount > 0) {
+          console.log(`Retrying Market Agent analysis (attempt ${retryCount}/${MAX_RETRIES})`);
         }
         
-        return analysis;
-      } catch (parseError: unknown) {
-        const errorMessage = parseError instanceof Error ? parseError.message : "Unknown parsing error";
-        console.error("Market Agent returned invalid JSON:", errorMessage);
-        console.error("Response content:", content.substring(0, 500));
-        throw new Error(`Market Agent returned invalid JSON: ${errorMessage}`);
-      }
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      console.error(`Market Agent analysis failed (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, lastError.message);
-      
-      retryCount++;
-      
-      if (retryCount <= MAX_RETRIES) {
-        const backoffMs = Math.min(1000 * Math.pow(2, retryCount - 1), 8000);
-        console.log(`Waiting ${backoffMs}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        // Use a more reliable model in production
+        const model = "gpt-3.5-turbo";
+        console.log(`Using OpenAI model for market agent: ${model}`);
+        
+        // Create the API call promise
+        const apiCallPromise = openai.chat.completions.create({
+          model: model,
+          messages: [
+            {
+              role: "system",
+              content: "You are the Market Specialist Agent (The Opportunity Validator). Your role is to analyze market size, growth potential, and validate the market opportunity."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.5,
+          response_format: { type: "json_object" }
+        });
+        
+        // Race the API call against the timeout
+        console.log("Sending request to OpenAI for market analysis...");
+        const response = await Promise.race([apiCallPromise, timeoutPromise]);
+        console.log("Market agent response received");
+        
+        const content = response.choices[0].message.content;
+        if (!content) {
+          throw new Error("No response from Market Agent");
+        }
+        
+        // Try to parse the response as JSON, with error handling
+        try {
+          console.log("Parsing market agent response...");
+          const analysis = JSON.parse(content) as MarketAnalysis;
+          
+          // Validate the minimal required fields exist
+          if (typeof analysis.tam !== 'number' || isNaN(analysis.tam)) {
+            analysis.tam = 1000000000; // Default $1B
+          }
+          if (typeof analysis.sam !== 'number' || isNaN(analysis.sam)) {
+            analysis.sam = analysis.tam * 0.3; // Default 30% of TAM
+          }
+          if (typeof analysis.som !== 'number' || isNaN(analysis.som)) {
+            analysis.som = analysis.sam * 0.1; // Default 10% of SAM
+          }
+          if (!analysis.growth_rate) {
+            analysis.growth_rate = "10-15% annually";
+          }
+          if (!analysis.market_demand) {
+            analysis.market_demand = "Moderate demand with growing interest";
+          }
+          if (!analysis.why_now) {
+            analysis.why_now = "Current market conditions are favorable for this solution";
+          }
+          if (!analysis.score || typeof analysis.score !== 'number') {
+            analysis.score = 65; // Default score
+          }
+          if (!analysis.reasoning) {
+            analysis.reasoning = "Analysis completed with default values";
+          }
+          
+          console.log("Market agent analysis completed successfully");
+          return analysis;
+        } catch (parseError: unknown) {
+          const errorMessage = parseError instanceof Error ? parseError.message : "Unknown parsing error";
+          console.error("Market Agent returned invalid JSON:", errorMessage);
+          console.error("Response content:", content.substring(0, 500));
+          throw new Error(`Market Agent returned invalid JSON: ${errorMessage}`);
+        }
+      } catch (error) {
+        // Check if this is a timeout error
+        const errorIsTimeout = error instanceof Error && 
+          (error.message.includes('timed out') || error.message.includes('timeout'));
+          
+        if (errorIsTimeout) {
+          console.error("Market agent API call timed out");
+        } else {
+          console.error("Market agent API error:", error);
+        }
+        
+        lastError = error instanceof Error ? error : new Error(String(error));
+        console.error(`Market Agent analysis failed (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, lastError.message);
+        
+        retryCount++;
+        
+        if (retryCount <= MAX_RETRIES) {
+          const backoffMs = Math.min(1000 * Math.pow(2, retryCount - 1), 8000);
+          console.log(`Waiting ${backoffMs}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, backoffMs));
+        }
       }
     }
+    
+    // If we've exhausted all retries, create a fallback analysis
+    console.log("All Market Agent retries failed, generating fallback analysis");
+    
+    // Create a fallback market analysis
+    return {
+      tam: 1000000000, // $1B
+      sam: 300000000,  // $300M
+      som: 30000000,   // $30M
+      growth_rate: "Unknown, estimated 10-15%",
+      market_demand: "Unable to determine precisely",
+      why_now: "Current market conditions may be suitable",
+      score: 60,
+      reasoning: "Auto-generated due to API processing issues. This is a simplified analysis with estimated market sizes."
+    };
+  } catch (generalError) {
+    console.error("Fatal error in Market Agent:", generalError);
+    
+    // Return default values if there's a catastrophic error
+    return {
+      tam: 1000000000, // $1B
+      sam: 300000000,  // $300M
+      som: 30000000,   // $30M
+      growth_rate: "Unknown, estimated 10-15%",
+      market_demand: "Unable to determine precisely",
+      why_now: "Current market conditions may be suitable",
+      score: 60,
+      reasoning: "Auto-generated due to technical difficulties. This is a simplified analysis with estimated market sizes."
+    };
   }
-  
-  // If we've exhausted all retries, create a fallback analysis
-  console.log("All Market Agent retries failed, generating fallback analysis");
-  
-  // Create a fallback market analysis
-  return {
-    tam: 1000000000, // $1B
-    sam: 300000000,  // $300M
-    som: 30000000,   // $30M
-    growth_rate: "Unknown, estimated 10-15%",
-    market_demand: "Unable to determine precisely",
-    why_now: "Current market conditions may be suitable",
-    score: 60,
-    reasoning: "Auto-generated due to API processing issues"
-  };
 }
 
 async function runCompetitiveAgentAnalysis(context: Record<string, any>): Promise<CompetitiveAnalysis> {

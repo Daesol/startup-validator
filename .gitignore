@@ -1,4 +1,4 @@
 /node_modules
 .env.local
 .cursor/mcp.json
-.next
+/next
