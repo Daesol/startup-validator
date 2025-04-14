@@ -43,7 +43,7 @@ export function VCReport({ validation }: VCReportProps) {
           {/* Header Section */}
           <HeaderSection 
             businessType={vcReport.business_type || "Business"} 
-            overallScore={vcReport.overall_score || 0}
+            overallScore={vcReport.overall_score || 'N/A'}
             createdAt={vcReport.created_at}
             categoryScores={vcReport.category_scores || {}}
           />

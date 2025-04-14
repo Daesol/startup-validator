@@ -22,9 +22,11 @@ export function HeaderSection({
 }: HeaderSectionProps) {
   const [isCategoryOpen, setIsCategoryOpen] = useState(true)
   
-  // Convert string score to number if needed
-  const score =
-    typeof overallScore === "string" ? Math.round(Number.parseFloat(overallScore)) : Math.round(overallScore)
+  // Convert string score to number if needed, handling 'N/A' and other non-numeric values
+  const score = 
+    typeof overallScore === "number" ? Math.round(overallScore) :
+    overallScore === "N/A" || !overallScore ? 0 :
+    Math.round(Number.parseFloat(overallScore) || 0)
 
   // Format date elegantly
   const formattedDate = createdAt
