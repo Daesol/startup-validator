@@ -178,7 +178,7 @@ export default function VCReportPage() {
   };
 
   // Fetch validation with progressive backoff
-  const fetchValidationData = async () => {
+  const fetchValidationData = useCallback(async () => {
     try {
       console.log(`Fetching validation data, attempt #${retryCount + 1}`);
       
@@ -189,6 +189,13 @@ export default function VCReportPage() {
           // Progressive backoff with a cap
           const delay = Math.min(3000 + Math.floor(retryCount / 10) * 1000, 10000);
           console.log(`No validation data yet, retrying in ${delay/1000}s...`);
+          
+          // On the first few attempts, try to clear any cached data to ensure fresh results
+          if (retryCount < 3) {
+            console.log("Clearing cached validation data");
+            setValidation(null);
+          }
+          
           setTimeout(() => setRetryCount(r => r + 1), delay);
           return null;
         } else {
@@ -202,7 +209,7 @@ export default function VCReportPage() {
       const status = vcData.validation.status;
       const hasReport = vcData.validation.vc_report && Object.keys(vcData.validation.vc_report).length > 0;
       
-      console.log(`Validation data: status=${status}, agents=${agentCount}, hasReport=${hasReport}`);
+      console.log(`Validation data: status=${status}, agents=${agentCount}, hasReport=${hasReport}, id=${vcData.validation.id}, formId=${vcData.form.id}`);
       
       // Add detailed diagnostics for failed validations
       if (status === "failed") {
@@ -228,6 +235,7 @@ export default function VCReportPage() {
       
       // Calculate inactivity time in seconds
       const inactivityTime = (now - lastActivityTime.current) / 1000;
+      console.log(`Processing in progress (${status}), checking again in 3s... (Inactive: ${Math.floor(inactivityTime)}s)`);
       
       // Update UI based on validation state
       updateUIFromValidation(vcData);
@@ -338,14 +346,55 @@ export default function VCReportPage() {
       setError(error instanceof Error ? error.message : "Failed to load validation data");
       return null;
     }
-  };
+  }, [params.id, retryCount, maxRetries]);
 
   // Initial data fetch on mount and when retryCount changes
   useEffect(() => {
     if (params.id) {
+      // Clear any cached data when the ID changes
+      if (validation && validation.form.id !== params.id && validation.validation.id !== params.id) {
+        console.log("ID changed, clearing cached validation data");
+        setValidation(null);
+        setProcessingAnalysis(true);
+        setProcessingProgress(10);
+        setCompletedStages([]);
+        previousAgentCount.current = 0;
+        lastActivityTime.current = Date.now();
+      }
       fetchValidationData();
     }
-  }, [params.id, retryCount]);
+  }, [params.id, retryCount, fetchValidationData]);
+
+  // Additional polling effect to ensure we get updates even if the backend is slow
+  useEffect(() => {
+    // Only set up polling if we're still processing
+    if (!processingAnalysis || !params.id) return;
+    
+    let intervalId: NodeJS.Timeout;
+    
+    // Start polling after a short delay
+    const timeoutId = setTimeout(() => {
+      // Poll more frequently at first, then slow down
+      const pollInterval = previousAgentCount.current === 0 ? 5000 : 10000;
+      
+      console.log(`Setting up background polling every ${pollInterval/1000}s`);
+      intervalId = setInterval(() => {
+        const now = Date.now();
+        const timeSinceLastUpdate = (now - lastActivityTime.current) / 1000;
+        
+        // Only trigger a refresh if we haven't seen activity in a while
+        if (timeSinceLastUpdate > 15) {
+          console.log(`No updates in ${Math.floor(timeSinceLastUpdate)}s, polling for updates...`);
+          fetchValidationData();
+        }
+      }, pollInterval);
+    }, 15000); // Start polling after 15s
+    
+    return () => {
+      clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [processingAnalysis, params.id, fetchValidationData]);
 
   // Handle manual refresh
   const handleRefresh = useCallback(() => {
