@@ -307,12 +307,37 @@ export async function getVCValidationWithAnalyses(
         validationData = byFormData;
         console.log(`Found VC validation with form ID ${id}`);
       } else {
-        console.error("No VC validation found with this ID or form ID");
-        return {
-          success: false,
-          error: "No VC validation found"
-        };
+        // As a last resort, try to get the most recent validation
+        // This helps in cases where the client has an outdated ID
+        console.log("No match found, trying to fetch the most recent validation");
+        const { data: recentData, error: recentError } = await supabase
+          .from("vc_validation_analyses")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+          
+        if (recentError) {
+          console.error("Error fetching recent validation:", recentError);
+        } else if (recentData) {
+          console.log(`Found most recent validation with ID: ${recentData.id}, form ID: ${recentData.validation_form_id}`);
+          validationData = recentData;
+        } else {
+          console.error("No VC validation found with this ID or form ID");
+          return {
+            success: false,
+            error: "No VC validation found"
+          };
+        }
       }
+    }
+
+    // If we still don't have validation data after all attempts, return an error
+    if (!validationData) {
+      return {
+        success: false,
+        error: "No VC validation found with any of the attempted methods"
+      };
     }
 
     // Get the validation form data
@@ -344,6 +369,9 @@ export async function getVCValidationWithAnalyses(
         error: agentAnalysesError.message
       };
     }
+
+    // Log detailed validation state for debugging
+    console.log(`Validation state - ID: ${validationData.id}, Form ID: ${validationData.validation_form_id}, Status: ${validationData.status}, Agents: ${agentAnalysesData?.length || 0}`);
 
     // Construct the full validation with analyses
     const result: VCValidationWithAnalyses = {

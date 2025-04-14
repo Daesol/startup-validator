@@ -53,11 +53,16 @@ export async function submitVCValidationForm(formData: {
     // We don't want to block the redirect, so we don't await this
     processVCValidationAsync(validationId, formData.businessIdea, formData.additionalContext || {});
 
-    // Revalidate the path
+    // Revalidate the paths (both potential URLs)
+    revalidatePath(`/validate/vc-report/${validationId}`);
     revalidatePath(`/validate/vc-report/${formId}`);
+    
+    // Log the redirection for debugging
+    console.log(`Redirecting to VC report page - Form ID: ${formId}, Validation ID: ${validationId}`);
 
-    // Redirect to the report page - the page will show "processing" state
-    redirect(`/validate/vc-report/${formId}`);
+    // Redirect to the report page using the validation ID to ensure accuracy
+    // The page will show "processing" state
+    redirect(`/validate/vc-report/${validationId}`);
     
     // This return statement is technically unreachable due to the redirect
     return {
