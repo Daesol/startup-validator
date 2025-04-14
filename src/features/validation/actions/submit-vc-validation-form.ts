@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { saveValidationForm } from "@/lib/supabase/validation-service"
-import { createVCValidation, updateVCValidationStatus, addAgentAnalysis, setVCReport } from "@/lib/supabase/vc-validation-service"
+import { createVCValidation, updateVCValidationStatus, addAgentAnalysis, setVCReport, getVCValidationWithAnalyses } from "@/lib/supabase/vc-validation-service"
 import { runVCValidation } from "@/lib/ai/vc-validation/vc-analyzer"
 import { VCAgentType } from "@/lib/supabase/types"
 
@@ -80,9 +80,50 @@ export async function submitVCValidationForm(formData: {
       // Continue anyway as this is not critical
     }
     
+    // Create a minimal initial problem agent analysis to show progress
+    try {
+      const initialProblemAnalysis = {
+        improved_problem_statement: formData.businessIdea,
+        severity_index: 5,
+        problem_framing: 'global',
+        root_causes: ["Initial analysis in progress..."],
+        score: 5,
+        reasoning: "Analysis has started and is being processed in the background."
+      };
+      
+      // Save the initial problem analysis
+      await addAgentAnalysis(
+        validationId,
+        'problem',
+        { businessIdea: formData.businessIdea, ...formData.additionalContext },
+        initialProblemAnalysis,
+        5,
+        initialProblemAnalysis.reasoning,
+        {}
+      );
+      
+      console.log("Saved initial problem agent analysis placeholder");
+    } catch (saveError) {
+      console.error("Error saving initial problem analysis:", saveError);
+    }
+    
     // Start the VC validation process asynchronously
-    // We don't want to block the redirect, so we don't await this
-    processVCValidationAsync(validationId, formData.businessIdea, formData.additionalContext || {});
+    // In production, this needs to be optimized to avoid serverless function timeouts
+    // We can only kick off the process and let it run in the background
+
+    // Update status to "processing" - this is the signal for the UI that background processing has started
+    await updateVCValidationStatus(validationId, "processing");
+    
+    // Start the first agent analysis in the background without awaiting it
+    // This will run until the serverless function times out, but it will save partial results
+    try {
+      // Start the process without awaiting the full completion
+      startProcessVCValidationAsync(validationId, formData.businessIdea, formData.additionalContext || {});
+      console.log("Started async VC validation process in the background");
+    } catch (processError) {
+      console.error("Error starting validation process:", processError);
+      // Don't block the redirect even if there's an error starting the process
+    }
 
     // Revalidate the paths (both potential URLs)
     revalidatePath(`/validate/vc-report/${validationId}`);
@@ -116,7 +157,90 @@ export async function submitVCValidationForm(formData: {
   }
 }
 
+// Modified function to start the process without awaiting full completion
+function startProcessVCValidationAsync(
+  validationId: string,
+  businessIdea: string,
+  additionalContext: Record<string, any>
+) {
+  // Start the process in the background without awaiting completion
+  // This is designed to work even with serverless function timeouts
+  (async () => {
+    try {
+      console.log(`[0s] Starting VC validation for business idea: ${businessIdea.substring(0, 100)}`);
+      
+      // Initialize context with user input
+      const context: Record<string, any> = {
+        user_input: businessIdea.trim(),
+        ...additionalContext
+      };
+      
+      // Get existing validation data
+      const { data: validationData } = await getVCValidationWithAnalyses(validationId);
+      if (!validationData || validationData.validation.status === 'failed') {
+        console.error(`Cannot process validation - validation ${validationId} not found or has failed`);
+        return;
+      }
+      
+      // We'll just start the first part of the analysis and expect it to time out
+      // The frontend will be responsible for polling and triggering the next steps
+      try {
+        // This will run until the function times out, but it will get started
+        const validationPromise = runVCValidation(
+          businessIdea,
+          additionalContext,
+          async (agentType, analysis) => {
+            // This will save agent results as they complete
+            try {
+              if (!analysis) return;
+              
+              // Extract the score and reasoning
+              const score = typeof analysis.score === 'number' 
+                ? Math.round(analysis.score) 
+                : (typeof analysis.score === 'string' ? Math.round(parseFloat(analysis.score)) : 5);
+              const reasoning = analysis.reasoning || "Analysis completed with limited information.";
+              
+              // Save the agent analysis
+              const agentResult = await addAgentAnalysis(
+                validationId,
+                agentType,
+                { businessIdea, ...additionalContext },
+                analysis,
+                score,
+                reasoning,
+                {}
+              );
+              
+              if (agentResult.success) {
+                console.log(`[AGENT STEP] Saved ${agentType} agent analysis to database`);
+              } else {
+                console.error(`[AGENT STEP] Error saving ${agentType} agent analysis:`, agentResult.error);
+              }
+            } catch (error) {
+              console.error(`[AGENT STEP] Error in agent completion callback:`, error);
+            }
+          }
+        );
+        
+        // Start the process - we don't expect this to complete in the serverless function
+        console.log("Validation process started, this will likely time out which is expected");
+        
+        // The process will continue running until the serverless function times out
+        // but the agent analysis results will be saved as they complete
+      } catch (error) {
+        console.error("[AGENT STEP] Error starting validation process:", error);
+      }
+    } catch (error) {
+      console.error("Background VC validation process error:", error);
+      // We can't do much here since this is running in the background
+      // The UI will handle timeouts and retries
+    }
+  })();
+}
+
 // Process the VC validation asynchronously
+// NOTE: This function is no longer called directly, as it would timeout in serverless environments
+// Instead, we use the processAgentStep function which is called by API routes
 async function processVCValidationAsync(
   validationId: string,
   businessIdea: string,

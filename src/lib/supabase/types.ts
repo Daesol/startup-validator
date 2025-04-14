@@ -254,6 +254,7 @@ export type VCValidationStatus =
   | 'in_progress'
   | 'processing'
   | 'completed'
+  | 'completed_with_errors'
   | 'failed';
 
 // Record types for the database tables

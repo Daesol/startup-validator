@@ -412,6 +412,80 @@ export default function VCReportPage() {
     fetchValidationData();
   }, [router]);
 
+  // Add a function to check validation progress and trigger next steps
+  const checkValidationProgress = useCallback(async () => {
+    if (!params.id) return;
+    
+    try {
+      // Fetch validation data from our new API endpoint
+      const url = `/api/vc-analysis-progress?id=${params.id}`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Error fetching validation progress:", errorText);
+        return;
+      }
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        console.error("API returned error:", result.error);
+        return;
+      }
+      
+      // Update UI based on the validation state
+      updateUIFromValidation(result.data);
+      
+      // If there's a next agent to process and we're still in processing state, trigger it
+      if (result.nextAgent && result.status !== 'completed' && processingAnalysis) {
+        console.log(`Triggering next agent: ${result.nextAgent}`);
+        
+        // Trigger the next agent processing
+        const triggerUrl = `/api/vc-analysis-progress?id=${params.id}&triggerNext=true`;
+        const triggerResponse = await fetch(triggerUrl);
+        
+        if (!triggerResponse.ok) {
+          console.error("Error triggering next agent:", await triggerResponse.text());
+        } else {
+          console.log("Next agent processing triggered");
+        }
+      }
+      
+      // If all agents are done but we need a final report, trigger that
+      if (result.status === 'needs_final_report' && processingAnalysis) {
+        console.log("All agents completed, generating final report");
+        
+        // Trigger final report generation
+        const triggerUrl = `/api/vc-analysis-progress?id=${params.id}&triggerNext=true`;
+        const triggerResponse = await fetch(triggerUrl);
+        
+        if (!triggerResponse.ok) {
+          console.error("Error triggering final report:", await triggerResponse.text());
+        } else {
+          console.log("Final report generation triggered");
+        }
+      }
+    } catch (error) {
+      console.error("Error checking validation progress:", error);
+    }
+  }, [params.id, processingAnalysis, updateUIFromValidation]);
+
+  // Set up polling for validation progress
+  useEffect(() => {
+    if (!processingAnalysis || !params.id) return;
+    
+    // Check progress immediately
+    checkValidationProgress();
+    
+    // Then set up interval to check periodically
+    const intervalId = setInterval(() => {
+      checkValidationProgress();
+    }, 5000); // Check every 5 seconds
+    
+    return () => clearInterval(intervalId);
+  }, [processingAnalysis, params.id, checkValidationProgress]);
+
   // Show processing UI during analysis
   if (processingAnalysis) {
     // Calculate time since last refresh in seconds
