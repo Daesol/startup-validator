@@ -25,8 +25,8 @@ export default function GeneralValidationPage() {
       <main className="flex-1 container py-10 px-4">
         <div className="max-w-3xl mx-auto w-full">
           <div className="mb-8 text-center">
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tighter mb-2">General Validation</h1>
-            <p className="text-muted-foreground">Describe your business idea to get a quick validation assessment.</p>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tighter mb-2">Business Idea Validation</h1>
+            <p className="text-muted-foreground">Submit your idea for an initial quality check followed by a comprehensive validation report.</p>
           </div>
 
           <GeneralValidationForm />

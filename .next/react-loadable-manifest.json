@@ -20,11 +20,5 @@
   "../node_modules/@supabase/storage-js/dist/module/lib/helpers.js -> @supabase/node-fetch": {
     "id": "../node_modules/@supabase/storage-js/dist/module/lib/helpers.js -> @supabase/node-fetch",
     "files": []
-  },
-  "features/validation/pages/advance-validation-page.tsx -> @/features/validation/components/validation-form": {
-    "id": "features/validation/pages/advance-validation-page.tsx -> @/features/validation/components/validation-form",
-    "files": [
-      "static/chunks/_app-pages-browser_src_features_validation_components_validation-form_tsx.js"
-    ]
   }
 }

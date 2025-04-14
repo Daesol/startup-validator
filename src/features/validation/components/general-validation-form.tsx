@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { Loader2 } from "lucide-react"
+import { Loader2, ArrowLeft } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 import { submitGeneralForm } from "../actions/submit-general-form"
 import { LoadingPage } from "./loading-page"
+import { InitialConceptScore } from "@/components/initial-concept-score"
 
 export function GeneralValidationForm() {
   const router = useRouter()
@@ -22,6 +23,7 @@ export function GeneralValidationForm() {
   })
   const [isFormValid, setIsFormValid] = useState(false)
   const [submitAttempted, setSubmitAttempted] = useState(false)
+  const [currentStep, setCurrentStep] = useState<'form' | 'concept-score'>('form')
 
   const handleChange = (field: string, value: string) => {
     const newFormData = {
@@ -40,14 +42,23 @@ export function GeneralValidationForm() {
       return
     }
 
+    setCurrentStep('concept-score')
+  }
+
+  const handleImprovedIdeaSubmit = async (improvedIdea: string) => {
+    setFormData({
+      ...formData,
+      businessIdea: improvedIdea,
+    })
+
     setIsSubmitting(true)
 
     try {
-      await submitGeneralForm(formData)
-      // The redirect will happen automatically
-      // No need to handle the response or catch the redirect error
+      await submitGeneralForm({
+        ...formData,
+        businessIdea: improvedIdea,
+      })
     } catch (error) {
-      // Only show error toast if it's not a redirect
       if (!(error instanceof Error) || !error.message.includes('NEXT_REDIRECT')) {
         console.error("Error submitting form:", error)
         toast({
@@ -60,8 +71,53 @@ export function GeneralValidationForm() {
     }
   }
 
+  const handleProceedWithOriginal = async () => {
+    setIsSubmitting(true)
+
+    try {
+      await submitGeneralForm(formData)
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('NEXT_REDIRECT')) {
+        console.error("Error submitting form:", error)
+        toast({
+          title: "Error",
+          description: "An unexpected error occurred. Please try again.",
+          variant: "destructive",
+        })
+        setIsSubmitting(false)
+      }
+    }
+  }
+
+  const handleBackToForm = () => {
+    setCurrentStep('form')
+  }
+
   if (isSubmitting) {
     return <LoadingPage />
+  }
+
+  if (currentStep === 'concept-score') {
+    return (
+      <div className="space-y-6">
+        <div>
+          <Button 
+            variant="ghost" 
+            onClick={handleBackToForm} 
+            className="mb-4 pl-0"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Form
+          </Button>
+        </div>
+        
+        <InitialConceptScore 
+          businessIdea={formData.businessIdea}
+          onImprovedIdeaSubmit={handleImprovedIdeaSubmit}
+          onProceedWithOriginal={handleProceedWithOriginal}
+        />
+      </div>
+    )
   }
 
   return (
@@ -109,14 +165,7 @@ export function GeneralValidationForm() {
               Back
             </Button>
             <Button type="submit" disabled={isSubmitting || (submitAttempted && !isFormValid)}>
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Analyzing & Validating...
-                </>
-              ) : (
-                "Submit for Validation"
-              )}
+              Continue to Validation
             </Button>
           </div>
         </div>
