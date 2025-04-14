@@ -35,52 +35,110 @@ interface AgentAnalysesSectionProps {
 }
 
 export function AgentAnalysesSection({ agents }: AgentAnalysesSectionProps) {
+  // Debug info
+  console.log("AgentAnalysesSection received:", {
+    agentsCount: agents.length,
+    agentTypes: agents.map(a => a.agent_type),
+    firstAgent: agents.length > 0 ? {
+      id: agents[0].id,
+      agent_type: agents[0].agent_type,
+      hasAnalysis: !!agents[0].analysis,
+      analysisKeys: agents[0].analysis ? Object.keys(agents[0].analysis) : []
+    } : null
+  });
+
+  if (!agents || agents.length === 0) {
+    console.warn("No agent data available");
+    return (
+      <Card className="border shadow-sm">
+        <CardHeader className="border-b">
+          <CardTitle className="text-xl font-bold">Specialist Agent Analyses</CardTitle>
+          <CardDescription>
+            Agent analyses data is not yet available
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-6 text-center text-muted-foreground">
+          Specialist agent analyses are still processing. Please check back soon.
+        </CardContent>
+      </Card>
+    );
+  }
+  
   // Sort agents to ensure consistent order
   const sortedAgents = [...agents].sort((a, b) => {
     const order = ['problem', 'market', 'competitive', 'uvp', 'business_model', 'validation', 'legal', 'metrics'];
     return order.indexOf(a.agent_type) - order.indexOf(b.agent_type);
   });
   
-  return (
-    <Card className="border shadow-sm">
-      <CardHeader className="border-b">
-        <CardTitle className="text-xl font-bold">Specialist Agent Analyses</CardTitle>
-        <CardDescription>
-          Each aspect of your business was analyzed by a specialized AI agent with unique expertise
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="p-0">
-        <Tabs defaultValue={sortedAgents[0]?.agent_type || 'problem'} className="w-full">
-          <TabsList className="h-auto px-4 py-3 bg-muted/30 border-b flex flex-wrap justify-center gap-2">
-            {sortedAgents.map(agent => (
-              <TabsTrigger 
-                key={agent.id}
-                value={agent.agent_type}
-                className="flex flex-col items-center gap-1 py-2 px-3 min-w-[80px] data-[state=active]:bg-white dark:data-[state=active]:bg-gray-800 data-[state=active]:shadow-sm"
-                style={{ 
-                  borderBottom: `2px solid ${AGENT_COLORS[agent.agent_type as keyof typeof AGENT_COLORS] || '#888'}`
-                }}
-              >
-                <span className="text-lg">{AGENT_ICONS[agent.agent_type as keyof typeof AGENT_ICONS]}</span>
-                <span className="font-medium capitalize text-xs text-center">{formatAgentType(agent.agent_type)}</span>
-                <Badge variant="outline" className="mt-1 text-xs bg-muted/50 px-1.5 py-0">
-                  {agent.score}
-                </Badge>
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          
-          <div className="w-full">
-            {sortedAgents.map(agent => (
-              <TabsContent key={agent.id} value={agent.agent_type} className="mt-0">
-                <AgentContent agent={agent} />
-              </TabsContent>
-            ))}
-          </div>
-        </Tabs>
-      </CardContent>
-    </Card>
-  )
+  // Check if all agents have analysis data
+  const agentsWithoutAnalysis = sortedAgents.filter(agent => !agent.analysis || Object.keys(agent.analysis).length === 0);
+  if (agentsWithoutAnalysis.length > 0) {
+    console.warn("Some agents are missing analysis data:", agentsWithoutAnalysis.map(a => a.agent_type));
+  }
+
+  try {
+    return (
+      <Card className="border shadow-sm">
+        <CardHeader className="border-b">
+          <CardTitle className="text-xl font-bold">Specialist Agent Analyses</CardTitle>
+          <CardDescription>
+            Each aspect of your business was analyzed by a specialized AI agent with unique expertise
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Tabs defaultValue={sortedAgents[0]?.agent_type || 'problem'} className="w-full">
+            <TabsList className="h-auto px-4 py-3 bg-muted/30 border-b flex flex-wrap justify-center gap-2">
+              {sortedAgents.map(agent => (
+                <TabsTrigger 
+                  key={agent.id}
+                  value={agent.agent_type}
+                  className="flex flex-col items-center gap-1 py-2 px-3 min-w-[80px] data-[state=active]:bg-white dark:data-[state=active]:bg-gray-800 data-[state=active]:shadow-sm"
+                  style={{ 
+                    borderBottom: `2px solid ${AGENT_COLORS[agent.agent_type as keyof typeof AGENT_COLORS] || '#888'}`
+                  }}
+                >
+                  <span className="text-lg">{AGENT_ICONS[agent.agent_type as keyof typeof AGENT_ICONS]}</span>
+                  <span className="font-medium capitalize text-xs text-center">{formatAgentType(agent.agent_type)}</span>
+                  <Badge variant="outline" className="mt-1 text-xs bg-muted/50 px-1.5 py-0">
+                    {agent.score}
+                  </Badge>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            
+            <div className="w-full">
+              {sortedAgents.map(agent => (
+                <TabsContent key={agent.id} value={agent.agent_type} className="mt-0">
+                  {agent.analysis && Object.keys(agent.analysis).length > 0 ? (
+                    <AgentContent agent={agent} />
+                  ) : (
+                    <div className="p-6 text-center text-muted-foreground">
+                      Analysis data for this agent is still processing or unavailable.
+                    </div>
+                  )}
+                </TabsContent>
+              ))}
+            </div>
+          </Tabs>
+        </CardContent>
+      </Card>
+    );
+  } catch (error) {
+    console.error("Error rendering agent analyses:", error);
+    return (
+      <Card className="border shadow-sm">
+        <CardHeader className="border-b">
+          <CardTitle className="text-xl font-bold">Specialist Agent Analyses</CardTitle>
+          <CardDescription>
+            There was an error rendering the agent analyses
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-6 text-center text-muted-foreground">
+          There was an error displaying the specialist agent analyses. Please try refreshing the page.
+        </CardContent>
+      </Card>
+    );
+  }
 }
 
 // Component to show the content for each agent
@@ -88,39 +146,61 @@ function AgentContent({ agent }: { agent: VCAgentAnalysisRecord }) {
   // Get color for this agent type
   const agentColor = AGENT_COLORS[agent.agent_type as keyof typeof AGENT_COLORS] || '#718096';
   
-  return (
-    <div className="space-y-6 animate-in fade-in-50 duration-300">
-      <div className="overflow-hidden border rounded-lg">
-        <div className="bg-muted/20 py-4 px-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div 
-                className="w-10 h-10 rounded-full flex items-center justify-center text-white"
-                style={{ backgroundColor: agentColor }}
-              >
-                {AGENT_ICONS[agent.agent_type as keyof typeof AGENT_ICONS]}
+  try {
+    // Debug info
+    console.log(`Rendering agent content for ${agent.agent_type}:`, {
+      score: agent.score,
+      hasReasoning: !!agent.reasoning,
+      analysisKeys: agent.analysis ? Object.keys(agent.analysis) : []
+    });
+
+    return (
+      <div className="space-y-6 animate-in fade-in-50 duration-300">
+        <div className="overflow-hidden border rounded-lg">
+          <div className="bg-muted/20 py-4 px-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div 
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-white"
+                  style={{ backgroundColor: agentColor }}
+                >
+                  {AGENT_ICONS[agent.agent_type as keyof typeof AGENT_ICONS]}
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold capitalize" style={{ color: agentColor }}>
+                    {formatAgentType(agent.agent_type)} <span className="text-foreground">({agent.score}/10)</span>
+                  </h3>
+                </div>
               </div>
-              <div>
-                <h3 className="text-lg font-semibold capitalize" style={{ color: agentColor }}>
-                  {formatAgentType(agent.agent_type)} <span className="text-foreground">({agent.score}/10)</span>
-                </h3>
+              <div className="hidden md:block">
+                <ScoreIndicator score={agent.score} color={agentColor} />
               </div>
             </div>
-            <div className="hidden md:block">
+          </div>
+          <div className="py-4 px-6">
+            <div className="md:hidden mb-4">
               <ScoreIndicator score={agent.score} color={agentColor} />
             </div>
+            <p className="text-muted-foreground text-sm mb-4">{agent.reasoning || "No reasoning provided"}</p>
+            {agent.analysis && Object.keys(agent.analysis).length > 0 ? (
+              <AgentTypeSpecificContent agent={agent} />
+            ) : (
+              <div className="p-4 border rounded text-center text-muted-foreground">
+                Analysis data not available
+              </div>
+            )}
           </div>
-        </div>
-        <div className="py-4 px-6">
-          <div className="md:hidden mb-4">
-            <ScoreIndicator score={agent.score} color={agentColor} />
-          </div>
-          <p className="text-muted-foreground text-sm mb-4">{agent.reasoning}</p>
-          <AgentTypeSpecificContent agent={agent} />
         </div>
       </div>
-    </div>
-  )
+    );
+  } catch (error) {
+    console.error(`Error rendering agent content for ${agent.agent_type}:`, error);
+    return (
+      <div className="p-6 border rounded-lg text-center text-muted-foreground">
+        There was an error displaying this agent's analysis. Please try refreshing the page.
+      </div>
+    );
+  }
 }
 
 // Score visualization component
