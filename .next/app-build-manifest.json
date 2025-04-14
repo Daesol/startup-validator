@@ -11,6 +11,16 @@
       "static/chunks/main-app.js",
       "static/chunks/app/not-found.js"
     ],
+    "/validate/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/validate/page.js"
+    ],
+    "/validate/vc-validation/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/validate/vc-validation/page.js"
+    ],
     "/validate/vc-report/[id]/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",

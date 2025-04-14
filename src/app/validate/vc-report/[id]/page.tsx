@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import type { VCValidationWithAnalyses, VCAgentType } from "@/lib/supabase/types"
 import { Card } from "@/components/ui/card"
-import { Loader2, RefreshCw, CheckCircle2 } from "lucide-react"
+import { Loader2, RefreshCw, CheckCircle2, ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { VCReport } from "@/components/vc-report"
@@ -204,6 +204,19 @@ export default function VCReportPage() {
       
       console.log(`Validation data: status=${status}, agents=${agentCount}, hasReport=${hasReport}`);
       
+      // Add detailed diagnostics for failed validations
+      if (status === "failed") {
+        console.info("Validation failed diagnostics:", {
+          formId: vcData.form.id,
+          validationId: vcData.validation.id,
+          createdAt: vcData.validation.created_at,
+          updatedAt: vcData.validation.updated_at,
+          businessIdeaLength: vcData.form.business_idea?.length || 0,
+          reportFields: vcData.validation.vc_report ? Object.keys(vcData.validation.vc_report) : [],
+          agentTypesCompleted: vcData.agent_analyses.map(a => a.agent_type)
+        });
+      }
+      
       // Track activity and progress
       const now = Date.now();
       if (agentCount > lastAgentCount.current) {
@@ -238,7 +251,19 @@ export default function VCReportPage() {
       const isStalled = inactivityTime > 60 && agentCount > 0 && agentCount < 8; // No new agents for 60 seconds
       
       if (isFailed) {
-        throw new Error("Validation analysis failed. Please try again.");
+        // Instead of throwing an error, set the error state and return the data we have
+        console.warn("[Handled] Validation status is 'failed' - showing error UI with recovery options");
+        setError("Validation analysis failed. This could be due to a processing issue or complexity in analyzing your business idea.");
+        
+        // If we have some agent analyses, we can still show partial results
+        if (agentCount >= 4) {
+          // After displaying the error, allow viewing partial results
+          setTimeout(() => {
+            setProcessingAnalysis(false);
+          }, 1500);
+        }
+        
+        return vcData;
       }
       
       // Auto-refresh if analysis appears stalled but has made progress
@@ -344,21 +369,45 @@ export default function VCReportPage() {
     const timeSinceLastAgentUpdate = Math.floor((Date.now() - lastActivityTime.current) / 1000);
     const hasActiveAgents = previousAgentCount.current > 0;
     const inactiveForLongTime = timeSinceLastAgentUpdate > 30;
+    const agentCount = previousAgentCount.current;
+    
+    // Tips to show during processing
+    const tips = [
+      "AI agents are working together to evaluate different aspects of your business.",
+      "Each agent specializes in a different area like market analysis or business model validation.",
+      "Your analysis typically involves 8 specialized AI agents working together.",
+      "The process usually takes 60-90 seconds to complete.",
+      "Results will include strengths, weaknesses, and suggested improvements.",
+    ];
+    
+    // Select a random tip, but change it every 10 seconds
+    const tipIndex = Math.floor(retryCount / 3) % tips.length;
     
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-screen p-4">
         <Card className="p-8 max-w-2xl w-full">
           <div className="flex flex-col items-center text-center space-y-6">
-            <Loader2 className="h-12 w-12 text-primary animate-spin" />
+            <div className="relative">
+              <Loader2 className="h-16 w-16 text-primary animate-spin" />
+              {agentCount > 0 && (
+                <div className="absolute -top-2 -right-2 bg-primary text-white text-xs rounded-full w-6 h-6 flex items-center justify-center">
+                  {agentCount}/8
+                </div>
+              )}
+            </div>
+            
             <div className="space-y-2 w-full">
-              <h2 className="text-xl font-semibold">Multi-Agent Analysis in Progress</h2>
+              <h2 className="text-2xl font-semibold">Multi-Agent Analysis in Progress</h2>
               <p className="text-muted-foreground">
-                Our 8 specialized AI agents are analyzing your business idea from different perspectives. 
-                This typically takes 60-90 seconds.
+                {tips[tipIndex]}
               </p>
               <div className="w-full mt-6 space-y-2">
-                <Progress value={processingProgress} className="h-2 w-full" />
-                <p className="text-sm font-medium">
+                <div className="flex justify-between text-sm mb-1">
+                  <span>{processingProgress < 100 ? 'Processing...' : 'Completed!'}</span>
+                  <span>{processingProgress}%</span>
+                </div>
+                <Progress value={processingProgress} className="h-2.5 w-full" />
+                <p className="text-sm font-medium mt-2">
                   {processingStage}
                 </p>
                 {hasActiveAgents && inactiveForLongTime && (
@@ -368,17 +417,19 @@ export default function VCReportPage() {
                 )}
               </div>
               
-              {/* Show completed stages */}
-              <div className="mt-4 text-left border rounded-md p-4 max-h-48 overflow-y-auto">
+              {/* Show completed stages with animations */}
+              <div className="mt-6 text-left border rounded-md p-4 max-h-48 overflow-y-auto bg-muted/20">
                 <h3 className="text-sm font-semibold mb-2">Progress:</h3>
                 <ul className="space-y-2 text-sm">
                   {completedStages.map((stage, index) => (
-                    <li key={index} className="flex items-center">
+                    <li key={index} className="flex items-center animate-fadeIn">
                       <CheckCircle2 className="h-4 w-4 text-green-500 mr-2" />
                       <span>{stage}</span>
                     </li>
                   ))}
-                  {completedStages.length === 0 && <li>Starting analysis...</li>}
+                  {completedStages.length === 0 && (
+                    <li className="text-muted-foreground">Starting analysis...</li>
+                  )}
                 </ul>
               </div>
             </div>
@@ -422,18 +473,66 @@ export default function VCReportPage() {
 
   // Show error UI
   if (error) {
+    // Determine if we have partial results to display
+    const hasPartialResults = validation && validation.agent_analyses && validation.agent_analyses.length >= 4;
+    
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Card className="p-6 max-w-md w-full">
-          <h2 className="text-xl font-semibold mb-4">Error</h2>
-          <p className="text-red-500">{error}</p>
-          <Button 
-            onClick={handleRefresh} 
-            className="mt-4 flex items-center gap-2"
-          >
-            <RefreshCw className="h-4 w-4" />
-            <span>Try Again</span>
-          </Button>
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <h2 className="text-xl font-semibold text-red-800 mb-2">Analysis Encountered an Issue</h2>
+            <p className="text-red-700 mb-4">{error}</p>
+            <p className="text-sm text-gray-700">
+              This sometimes happens with complex business ideas or when our AI agents encounter unexpected data patterns.
+            </p>
+          </div>
+          
+          <div className="mb-4">
+            <h3 className="text-sm font-medium mb-2">Troubleshooting tips:</h3>
+            <ul className="text-sm text-muted-foreground pl-5 list-disc space-y-1">
+              <li>Try shortening your business description to focus on core elements</li>
+              <li>Ensure your description has clear problem and solution statements</li>
+              <li>Consider breaking complex ideas into simpler components</li>
+              <li>Use the basic validation if you continue having issues</li>
+            </ul>
+          </div>
+          
+          <div className="flex flex-col gap-3">
+            {hasPartialResults && (
+              <Button 
+                onClick={() => setProcessingAnalysis(false)} 
+                className="flex items-center gap-2"
+              >
+                <span>View Partial Results</span>
+              </Button>
+            )}
+            
+            <Button 
+              onClick={handleRefresh} 
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span>Try Analysis Again</span>
+            </Button>
+            
+            <Button 
+              variant="ghost" 
+              className="flex items-center gap-2"
+              onClick={() => router.push('/validate/general')}
+            >
+              <span>Try Basic Validation Instead</span>
+            </Button>
+            
+            <Button 
+              variant="ghost" 
+              className="flex items-center gap-2"
+              onClick={() => router.push('/validate')}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back to Dashboard</span>
+            </Button>
+          </div>
         </Card>
       </div>
     );

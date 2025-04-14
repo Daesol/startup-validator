@@ -398,8 +398,14 @@ export interface VCReport {
   strengths?: string[];
   weaknesses?: string[];
   suggested_actions?: string[];
+  
+  // Fields for tracking partial completion
+  partial_completion?: boolean;
+  completed_agents?: VCAgentType[];
+  failed_agents?: VCAgentType[];
   generation_method?: string;
-  generated_at?: string;
+  
+  // Metadata
   created_at?: string;
   updated_at?: string;
 }
