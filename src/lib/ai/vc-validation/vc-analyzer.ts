@@ -410,107 +410,123 @@ export async function runVCValidation(
 
 // Individual agent functions
 async function runProblemAgentAnalysis(context: Record<string, any>): Promise<ProblemAnalysis> {
-  const prompt = getProblemAgentPrompt(context);
-  
-  // Extract the business idea for logging/debugging
-  const businessIdea = context.user_input || "";
-  console.log(`Problem agent analyzing business idea (length: ${businessIdea.length}): "${businessIdea.substring(0, 50)}..."`);
-  
-  // Define maximum retries
-  const MAX_RETRIES = 2;
-  let retryCount = 0;
-  let lastError: Error | null = null;
-  
-  // Retry loop for API calls
-  while (retryCount <= MAX_RETRIES) {
+  try {
+    console.log("Problem agent analyzing business idea (length: " + context.user_input.length + "):", JSON.stringify(context.user_input.substring(0, 50) + "..."));
+    
+    // Log if OpenAI API key is present (masked for security)
+    const apiKey = process.env.OPENAI_API_KEY;
+    console.log(`OpenAI API key status: ${apiKey ? 'Present (length: ' + apiKey.length + ', first 4 chars: ' + apiKey.substring(0, 4) + ')' : 'MISSING'}`);
+    
+    // Get the prompt as a string
+    const systemPrompt = getProblemAgentPrompt({
+      business_idea: context.user_input,
+      additional_notes: context.additionalNotes || ""
+    });
+
+    console.log("Sending request to OpenAI...");
+    
     try {
-      // If this isn't the first attempt, log that we're retrying
-      if (retryCount > 0) {
-        console.log(`Retrying Problem Agent analysis (attempt ${retryCount}/${MAX_RETRIES})`);
-      }
+      // Try with a more stable model first
+      const model = "gpt-3.5-turbo";
+      console.log(`Using OpenAI model: ${model}`);
       
-      const response = await openai.chat.completions.create({
-        model: "gpt-3.5-turbo-1106", // Fallback to a more stable model after first try
+      const completion = await openai.chat.completions.create({
+        model: model,
         messages: [
-          {
-            role: "system",
-            content: "You are the Problem Specialist Agent (The Diagnostician). Your role is to extract, clarify and strengthen the actual problem statement from the business idea."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
+          { role: "system", content: systemPrompt },
+          { role: "user", content: "Please analyze the business idea and provide your assessment in the required JSON format." }
         ],
-        temperature: 0.5, // Lower temperature for more consistent results
+        temperature: 0.2,
         response_format: { type: "json_object" }
       });
       
-      const content = response.choices[0].message.content;
-      if (!content) {
-        throw new Error("No response from Problem Agent");
+      console.log("OpenAI response received, processing response...");
+      
+      // Extract the response content
+      const responseContent = completion.choices[0]?.message.content || "";
+      if (!responseContent) {
+        throw new Error("Empty response from OpenAI");
       }
       
-      // Try to parse the response as JSON, with error handling
+      console.log("Response content length:", responseContent.length);
+      console.log("Response content preview:", responseContent.substring(0, 100) + "...");
+      
       try {
-        const analysis = JSON.parse(content) as ProblemAnalysis;
+        // Parse the JSON response
+        const analysis = JSON.parse(responseContent);
         
-        // Validate the minimal required fields exist
+        console.log("Problem agent response successfully parsed, validating...");
+        
+        // Validate the analysis structure
         if (!analysis.improved_problem_statement) {
-          analysis.improved_problem_statement = businessIdea.substring(0, 200);
-        }
-        if (!analysis.severity_index || typeof analysis.severity_index !== 'number') {
-          analysis.severity_index = 5; // Default mid-level severity
-        }
-        if (!analysis.problem_framing) {
-          analysis.problem_framing = 'niche'; // Default to niche framing
-        }
-        if (!analysis.root_causes || !Array.isArray(analysis.root_causes)) {
-          analysis.root_causes = ["Unable to determine root causes"];
-        }
-        if (!analysis.score || typeof analysis.score !== 'number') {
-          analysis.score = 70; // Default reasonable score
-        }
-        if (!analysis.reasoning) {
-          analysis.reasoning = "Analysis completed with default values";
+          console.error("Missing improved_problem_statement in analysis:", JSON.stringify(analysis));
+          throw new Error("Invalid analysis structure: missing improved_problem_statement");
         }
         
-        return analysis;
-      } catch (parseError: unknown) {
-        // If JSON parsing fails, throw a clear error
-        const errorMessage = parseError instanceof Error ? parseError.message : "Unknown parsing error";
-        console.error("Problem Agent returned invalid JSON:", errorMessage);
-        console.error("Response content:", content.substring(0, 500));
-        throw new Error(`Problem Agent returned invalid JSON: ${errorMessage}`);
+        // Ensure score is within valid range
+        let score = typeof analysis.score === 'number' ? analysis.score : 
+                    (typeof analysis.score === 'string' ? parseFloat(analysis.score) : 0);
+        if (isNaN(score) || score < 0 || score > 10) {
+          console.warn(`Invalid score value (${analysis.score}), defaulting to 5`);
+          score = 5;
+        }
+        
+        // Ensure reasoning is a string
+        const reasoning = analysis.reasoning && typeof analysis.reasoning === 'string' 
+          ? analysis.reasoning 
+          : "Analysis completed successfully.";
+        
+        // Create a normalized version of the analysis
+        const normalizedAnalysis: ProblemAnalysis = {
+          improved_problem_statement: analysis.improved_problem_statement,
+          severity_index: analysis.severity_index || 5,
+          problem_framing: analysis.problem_framing === 'niche' ? 'niche' : 'global',
+          root_causes: Array.isArray(analysis.root_causes) ? analysis.root_causes : [],
+          score: score,
+          reasoning: reasoning
+        };
+        
+        console.log("Problem agent analysis completed successfully");
+        return normalizedAnalysis;
+      } catch (parseError) {
+        console.error("Failed to parse OpenAI response:", parseError);
+        console.error("Raw response (first 500 chars):", responseContent.substring(0, 500));
+        throw new Error(`JSON parsing error: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
       }
-    } catch (error) {
-      // Log the error and store it for potential later use
-      lastError = error instanceof Error ? error : new Error(String(error));
-      console.error(`Problem Agent analysis failed (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, lastError.message);
+    } catch (openaiError) {
+      console.error("OpenAI API error details:", {
+        message: openaiError instanceof Error ? openaiError.message : String(openaiError),
+        name: openaiError instanceof Error ? openaiError.name : 'Unknown',
+        stack: openaiError instanceof Error ? openaiError.stack : 'No stack available'
+      });
       
-      // Increment retry counter and try again if not reached max
-      retryCount++;
-      
-      // Wait before retrying (exponential backoff)
-      if (retryCount <= MAX_RETRIES) {
-        const backoffMs = Math.min(1000 * Math.pow(2, retryCount - 1), 8000);
-        console.log(`Waiting ${backoffMs}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, backoffMs));
-      }
+      // Generate a fallback analysis rather than failing
+      console.log("Generating fallback analysis due to OpenAI API error");
+      return {
+        improved_problem_statement: context.user_input,
+        severity_index: 5,
+        problem_framing: 'global',
+        root_causes: ["Unable to analyze due to API limitations"],
+        score: 5,
+        reasoning: "Due to temporary service limitations, we've provided a basic analysis. Your idea appears to address a legitimate problem worth exploring."
+      };
     }
+  } catch (error) {
+    console.error("Fatal error in Problem Agent:", error);
+    
+    // Create a fallback analysis with default values
+    const fallbackAnalysis: ProblemAnalysis = {
+      improved_problem_statement: context.user_input,
+      severity_index: 5,
+      problem_framing: 'global',
+      root_causes: [`Unable to analyze due to error: ${error instanceof Error ? error.message : 'Unknown error'}`],
+      score: 3,
+      reasoning: `Analysis failed due to technical issues: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+    
+    // Instead of throwing error, return the fallback
+    return fallbackAnalysis;
   }
-  
-  // If we've exhausted all retries, create a fallback analysis
-  console.log("All Problem Agent retries failed, generating fallback analysis");
-  
-  // Create a fallback analysis with basic information that matches the ProblemAnalysis interface
-  return {
-    improved_problem_statement: businessIdea.substring(0, 500),
-    severity_index: 5,
-    problem_framing: 'niche' as const,
-    root_causes: ["Unable to determine due to processing issues"],
-    score: 60,
-    reasoning: "Auto-generated due to API processing issues"
-  };
 }
 
 async function runMarketAgentAnalysis(context: Record<string, any>): Promise<MarketAnalysis> {
