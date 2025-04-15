@@ -56,20 +56,43 @@ export async function submitVCValidationForm(formData: {
     
     // Different handling for Vercel vs local environment
     if (isVercel) {
-      // In Vercel: Start the process in the most lightweight way possible
-      // We put this inside a try/catch but don't await it
-      // The key here is to ensure the process gets started but doesn't
-      // block the redirect or depend on this function's execution context
+      // In Vercel: We need to use a drastically different approach
+      // Instead of trying to run the full analysis in the serverless function,
+      // we'll immediately create a "problem agent" placeholder that the UI can show
+      // and then trigger the actual analysis separately
       try {
-        console.log("Starting async VC validation in Vercel environment for ID:", validationId);
+        console.log("Using Vercel-optimized approach for ID:", validationId);
         
-        // Start the process without awaiting
+        // Create a simplified problem analysis immediately to ensure UI shows progress
+        const simplifiedProblemAnalysis = {
+          improved_problem_statement: formData.businessIdea.substring(0, 500),
+          severity_index: 5,
+          problem_framing: 'niche',
+          root_causes: ["Analysis initiated and in progress"],
+          score: 70,
+          reasoning: "Initial assessment, full analysis in progress"
+        };
+        
+        // Save the simplified analysis immediately so the UI shows something
+        await addAgentAnalysis(
+          validationId,
+          'problem',
+          { businessIdea: formData.businessIdea, ...formData.additionalContext },
+          simplifiedProblemAnalysis,
+          70,
+          "Initial problem assessment while full analysis completes",
+          {}
+        );
+        
+        // Now start the actual background process without awaiting or Promise chaining
         processVCValidationAsync(validationId, formData.businessIdea, formData.additionalContext || {})
           .catch(error => {
             console.error("Background processing error (Vercel):", error);
           });
+          
+        console.log("Vercel-optimized approach: Saved initial agent analysis and started background process");
       } catch (err) {
-        console.error("Error initiating async process in Vercel:", err);
+        console.error("Error with Vercel-optimized approach:", err);
         // Don't rethrow, we still want to redirect
       }
     } else {
@@ -121,16 +144,23 @@ async function processVCValidationAsync(
   additionalContext: Record<string, any>
 ) {
   try {
-    console.log("Starting async VC validation process for ID:", validationId);
+    console.log("[ASYNC] Starting async VC validation process for ID:", validationId);
+    console.log("[ASYNC] Process running in environment:", process.env.VERCEL ? "Vercel" : "Non-Vercel");
     
     // Update status to "processing"
     await updateVCValidationStatus(validationId, "processing");
+    console.log("[ASYNC] Status updated to 'processing'");
+    
+    // Detect Vercel environment to adjust behavior
+    const isVercel = process.env.VERCEL === '1';
     
     // Create a function to save each agent analysis as it's completed
     const saveAgentAnalysis = async (agentType: VCAgentType, analysis: any) => {
       if (!analysis || agentType === 'vc_lead') return;
       
       try {
+        console.log(`[ASYNC] Saving ${agentType} agent analysis to database`);
+        
         // Extract the score and reasoning from the analysis
         const score = typeof analysis.score === 'number' 
           ? Math.round(analysis.score) 
@@ -149,25 +179,32 @@ async function processVCValidationAsync(
         );
         
         if (agentResult.success) {
-          console.log(`Saved ${agentType} agent analysis to database`);
+          console.log(`[ASYNC] Successfully saved ${agentType} agent analysis to database`);
         } else {
-          console.error(`Error saving ${agentType} agent analysis:`, agentResult.error);
+          console.error(`[ASYNC] Error saving ${agentType} agent analysis:`, agentResult.error);
         }
       } catch (error) {
-        console.error(`Error processing ${agentType} agent analysis:`, error);
+        console.error(`[ASYNC] Error processing ${agentType} agent analysis:`, error);
         // Continue execution despite errors in individual agent saves
       }
     };
     
     // Create an event handler for agent completion
     const onAgentComplete = async (agentType: VCAgentType, analysis: any) => {
+      console.log(`[ASYNC] Agent complete callback for ${agentType}`);
       await saveAgentAnalysis(agentType, analysis);
     };
     
     // Add timeout for the validation process (5 minutes)
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("VC validation process timed out after 5 minutes")), 5 * 60 * 1000);
+      setTimeout(() => {
+        console.log("[ASYNC] VC validation process timed out after 5 minutes");
+        reject(new Error("VC validation process timed out after 5 minutes"));
+      }, 5 * 60 * 1000);
     });
+    
+    // Log before running the multi-agent validation
+    console.log("[ASYNC] About to run VC validation with business idea length:", businessIdea.length);
     
     // Run the multi-agent validation with callbacks and timeout
     const validationPromise = runVCValidation(
@@ -177,19 +214,20 @@ async function processVCValidationAsync(
     );
     
     // Race the validation process against the timeout
+    console.log("[ASYNC] Started validation promise race against timeout");
     const result = await Promise.race([validationPromise, timeoutPromise]) as Awaited<ReturnType<typeof runVCValidation>>;
     
     if (!result.success) {
-      console.error("VC validation process failed:", result.error);
-      console.error("Additional error details:", result.error_details || "No details available");
-      console.error("Failed at agent:", result.failed_at || "Unknown stage");
+      console.error("[ASYNC] VC validation process failed:", result.error);
+      console.error("[ASYNC] Additional error details:", result.error_details || "No details available");
+      console.error("[ASYNC] Failed at agent:", result.failed_at || "Unknown stage");
       
       // Even if the process fails, we should check if we received partial results
       // that we can use to generate a basic report
       const agentAnalyses = result.agent_analyses as Partial<Record<VCAgentType, any>> || {};
       if (Object.keys(agentAnalyses).length > 0 && 
           Object.keys(agentAnalyses).some(key => agentAnalyses[key as VCAgentType] !== null)) {
-        console.log("Generating fallback report from partial agent analyses");
+        console.log("[ASYNC] Generating fallback report from partial agent analyses");
         
         // Create a basic report from whatever agents completed successfully
         const fallbackReport = generateFallbackReport(businessIdea, agentAnalyses);
@@ -199,16 +237,18 @@ async function processVCValidationAsync(
         
         // Mark as completed with warning flag
         await updateVCValidationStatus(validationId, "completed_with_errors");
+        console.log("[ASYNC] Saved fallback report and updated status to 'completed_with_errors'");
         
         return;
       }
       
       // If we can't generate a fallback report, mark as failed
       await updateVCValidationStatus(validationId, "failed");
+      console.log("[ASYNC] Updated status to 'failed'");
       return;
     }
     
-    console.log("VC validation process completed successfully");
+    console.log("[ASYNC] VC validation process completed successfully");
     
     // At this point, all agent analyses have already been saved individually through callbacks
     // We just need to save the final report
@@ -218,16 +258,20 @@ async function processVCValidationAsync(
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       // Save the final VC report
+      console.log("[ASYNC] Saving final VC report");
       const overallScore = result.vc_report.overall_score;
       await setVCReport(validationId, result.vc_report, overallScore);
       
       // Update status to completed
       await updateVCValidationStatus(validationId, "completed");
       
-      console.log("VC validation report saved to database");
+      console.log("[ASYNC] VC validation report saved to database and status updated to 'completed'");
     }
   } catch (error) {
-    console.error("Error in processVCValidationAsync:", error);
+    console.error("[ASYNC] Fatal error in processVCValidationAsync:", error);
+    console.error("[ASYNC] Error type:", error instanceof Error ? error.name : typeof error);
+    console.error("[ASYNC] Error message:", error instanceof Error ? error.message : String(error));
+    console.error("[ASYNC] Error stack:", error instanceof Error ? error.stack : "No stack available");
     
     try {
       // Generate a diagnostic report with the error information
@@ -236,6 +280,8 @@ async function processVCValidationAsync(
         stack: error.stack,
         name: error.name
       } : { message: "Unknown error type" };
+      
+      console.log("[ASYNC] Creating error fallback report");
       
       // Create a minimal fallback report
       const errorReport = {
@@ -266,12 +312,14 @@ async function processVCValidationAsync(
       
       // Save the error report
       await setVCReport(validationId, errorReport, 50);
+      console.log("[ASYNC] Error report saved successfully");
     } catch (reportError) {
-      console.error("Error creating fallback error report:", reportError);
+      console.error("[ASYNC] Error creating fallback error report:", reportError);
     }
     
     // Update status to failed
     await updateVCValidationStatus(validationId, "failed");
+    console.log("[ASYNC] Status updated to 'failed'");
   }
 }
 
