@@ -54,6 +54,7 @@ const openai = new OpenAI({
   timeout: API_TIMEOUT, // Timeout for API requests
   maxRetries: IS_VERCEL ? 2 : 3, // Increase retries
 });
+console.log("api key", process.env.OPENAI_API_KEY);
 
 // Helper function to handle API calls with retries
 async function callOpenAIWithRetry<T>(apiCall: () => Promise<T>, maxRetries = 2): Promise<T> {
@@ -61,8 +62,9 @@ async function callOpenAIWithRetry<T>(apiCall: () => Promise<T>, maxRetries = 2)
   
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
+      console.log(`Retrying OpenAI API call, attempt ${attempt}/${maxRetries}`);
       if (attempt > 0) {
-        console.log(`Retrying OpenAI API call, attempt ${attempt}/${maxRetries}`);
+        
         // Exponential backoff with jitter
         const delay = Math.min(1000 * (2 ** attempt) + Math.random() * 1000, 10000);
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -418,24 +420,29 @@ async function runProblemAgentAnalysis(context: Record<string, any>): Promise<Pr
     - score: Overall score 1-100
     - reasoning: Brief explanation of your score`;
     
-    const response = await callOpenAIWithRetry(() => 
-      openai.chat.completions.create({
-        model: "gpt-3.5-turbo", // Use faster model
-        messages: [
-          {
-            role: "system",
-            content: "You are the Problem Specialist Agent. Extract and clarify the problem from business ideas."
-          },
-          {
-            role: "user",
-            content: simplifiedPrompt // Use simplified prompt for faster processing
-          }
-        ],
-        temperature: 0.3, // Lower temperature for more consistent results
-        max_tokens: 500, // Limit token count for faster response
-        response_format: { type: "json_object" }
-      })
-    );
+    const response = await callOpenAIWithRetry(() => {
+      try { 
+        return openai.chat.completions.create({
+          model: "gpt-3.5-turbo", // Use faster model
+          messages: [
+            {
+              role: "system",
+              content: "You are the Problem Specialist Agent. Extract and clarify the problem from business ideas."
+            },
+            {
+              role: "user",
+              content: simplifiedPrompt // Use simplified prompt for faster processing
+            }
+          ],
+          temperature: 0.3, // Lower temperature for more consistent results
+          max_tokens: 500, // Limit token count for faster response
+          response_format: { type: "json_object" }
+        })
+      } catch (error){
+        console.log("Error", error);
+        throw error;
+      }
+  });
     
     const content = response.choices[0].message.content;
     if (!content) {
