@@ -46,13 +46,13 @@ import {
 
 // Define constants for environment detection and timeouts
 const IS_VERCEL = process.env.VERCEL === '1';
-const API_TIMEOUT = IS_VERCEL ? 10000 : 30000; // 10 seconds for Vercel, 30 for other environments
+const API_TIMEOUT = IS_VERCEL ? 30000 : 60000; // 30 seconds for Vercel, 60 for other environments
 
 // Enhanced OpenAI client with timeouts and retries for reliability in serverless environments
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
   timeout: API_TIMEOUT, // Timeout for API requests
-  maxRetries: IS_VERCEL ? 1 : 2, // Fewer retries in Vercel
+  maxRetries: IS_VERCEL ? 2 : 3, // Increase retries
 });
 
 // Helper function to handle API calls with retries
@@ -100,7 +100,7 @@ export async function runVCValidation(
 }> {
   console.log(`[VC-VALIDATION] Starting VC validation process`);
   console.log(`[VC-VALIDATION] Environment: ${IS_VERCEL ? 'Vercel serverless' : 'Non-Vercel'}`);
-  console.log(`[VC-VALIDATION] API Timeout: ${API_TIMEOUT}ms, Max Retries: ${IS_VERCEL ? '1' : '2'}`);
+  console.log(`[VC-VALIDATION] API Timeout: ${API_TIMEOUT}ms, Max Retries: ${IS_VERCEL ? '2' : '3'}`);
   
   // Combine business idea with additional context
   const context: Record<string, any> = {
@@ -144,7 +144,55 @@ export async function runVCValidation(
       
       // First try: Use simplified fetch approach (more likely to succeed in Vercel)
       try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        console.log(`[PROBLEM-AGENT] Attempting direct fetch with ${IS_VERCEL ? '30s' : '60s'} timeout`);
+        
+        // Helper function for fetch with timeout and retry
+        const fetchWithRetry = async (url: string, options: RequestInit, maxRetries = 2) => {
+          let lastError: Error | null = null;
+          
+          for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+              if (attempt > 0) {
+                console.log(`[PROBLEM-AGENT] Retrying fetch, attempt ${attempt}/${maxRetries}`);
+                // Exponential backoff with jitter
+                const delay = Math.min(1000 * (2 ** attempt) + Math.random() * 1000, 8000);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              }
+              
+              // Use AbortController for timeout
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
+              
+              const fetchOptions = {
+                ...options,
+                signal: controller.signal
+              };
+              
+              try {
+                const response = await fetch(url, fetchOptions);
+                clearTimeout(timeoutId);
+                return response;
+              } catch (error) {
+                clearTimeout(timeoutId);
+                throw error;
+              }
+            } catch (error) {
+              lastError = error instanceof Error ? error : new Error(String(error));
+              console.error(`[PROBLEM-AGENT] Fetch error (attempt ${attempt}/${maxRetries}):`, 
+                lastError.message);
+              
+              // If we've reached max retries, throw the error
+              if (attempt === maxRetries) {
+                throw lastError;
+              }
+            }
+          }
+          
+          // This should never be reached due to the throw above
+          throw lastError || new Error("Unknown error in fetchWithRetry");
+        };
+        
+        const response = await fetchWithRetry('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -166,7 +214,7 @@ export async function runVCValidation(
             max_tokens: 300,
             response_format: { type: "json_object" }
           })
-        });
+        }, IS_VERCEL ? 2 : 3);
         
         if (!response.ok) {
           throw new Error(`OpenAI API returned ${response.status}: ${await response.text()}`);

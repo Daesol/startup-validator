@@ -69,18 +69,51 @@ export async function processVCValidationAsync(
   additionalContext: Record<string, any> = {}
 ): Promise<void> {
   console.log(`Starting background VC validation for ID ${validationId}`);
-  await logToDatabase(validationId, "Background validation process started");
+  await logToDatabase(validationId, "Background validation process started", {
+    environment: process.env.VERCEL === '1' ? 'Vercel' : 'Local',
+    businessIdeaLength: businessIdea.length,
+    timestamp: new Date().toISOString()
+  });
+  
+  // Add a timeout safety net for the entire process
+  const processTimeoutMs = 180000; // 3 minutes max for full process
+  const processTimeout = setTimeout(() => {
+    logToDatabase(validationId, "Process timeout triggered - 3 minute limit reached", {
+      error: "Process timeout",
+      timestamp: new Date().toISOString()
+    });
+  }, processTimeoutMs);
   
   try {
     // Run the validation process - now optimized for reliability with just Problem Analysis
-    await logToDatabase(validationId, "Calling runVCValidation");
+    await logToDatabase(validationId, "Calling runVCValidation with enhanced timeout", {
+      apiTimeout: process.env.VERCEL === '1' ? '30s' : '60s'
+    });
+    
+    // Start the validation process with a long timeout
+    const validationTimeout = setTimeout(() => {
+      logToDatabase(validationId, "Validation API timeout - possible hung request", {
+        error: "API timeout",
+        timestamp: new Date().toISOString()
+      });
+    }, 45000); // 45 second check for validation call
+    
     const validationResult = await runVCValidation(
       businessIdea,
       additionalContext
     );
     
+    // Clear the validation timeout since we got a response
+    clearTimeout(validationTimeout);
+    
     console.log("VC validation result:", JSON.stringify(validationResult.success));
-    await logToDatabase(validationId, "runVCValidation returned", { success: validationResult.success });
+    await logToDatabase(validationId, "runVCValidation returned", { 
+      success: validationResult.success,
+      hasError: !!validationResult.error,
+      errorMessage: validationResult.error,
+      errorDetails: validationResult.error_details,
+      failedAt: validationResult.failed_at
+    });
     
     if (!validationResult.success) {
       console.error("VC validation failed:", validationResult.error);
@@ -159,6 +192,9 @@ export async function processVCValidationAsync(
     await logToDatabase(validationId, "Validation process completed successfully", { status: "completed" });
     console.log(`Completed VC validation for ID ${validationId}`);
     
+    // Clear the overall process timeout
+    clearTimeout(processTimeout);
+    
   } catch (error) {
     console.error("Unhandled error in VC validation process:", error);
     await logToDatabase(validationId, "Unhandled error in validation process", { 
@@ -169,6 +205,9 @@ export async function processVCValidationAsync(
     try {
       // Try to update the status to failed
       await handleValidationError(validationId, businessIdea, error);
+      
+      // Clear the process timeout even on error
+      clearTimeout(processTimeout);
     } catch (statusUpdateError) {
       console.error("Failed to update validation status:", statusUpdateError);
       await logToDatabase(validationId, "Failed to handle validation error", { 
