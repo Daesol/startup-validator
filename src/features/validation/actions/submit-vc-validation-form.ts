@@ -46,25 +46,42 @@ export async function submitVCValidationForm(formData: {
     const validationId = validationResult.validationId;
     console.log("VC validation created with ID:", validationId);
     
-    // Update status to "in_progress"
+    // Update status to "in_progress" and immediately set to "processing"
+    // This helps clients show status updates sooner
     await updateVCValidationStatus(validationId, "in_progress");
+    await updateVCValidationStatus(validationId, "processing");
     
-    // Start the VC validation process asynchronously without awaiting its completion
-    // This is critical for Vercel deployment to allow the function to return quickly
-    // while the background processing continues
+    // Detect Vercel environment
+    const isVercel = process.env.VERCEL === '1';
     
-    // Use Promise-based approach to ensure the process starts but doesn't block the response
-    Promise.resolve().then(() => {
-      console.log("Starting async VC validation process for ID:", validationId);
-      processVCValidationAsync(validationId, formData.businessIdea, formData.additionalContext || {})
-        .catch(error => {
-          console.error("Caught error in async validation process:", error);
-          // This error handling happens after the response has been sent to the client
-          // Make sure errors are logged to Vercel logs for debugging
-        });
-    }).catch(err => {
-      console.error("Error initiating async process:", err);
-    });
+    // Different handling for Vercel vs local environment
+    if (isVercel) {
+      // In Vercel: Start the process in the most lightweight way possible
+      // We put this inside a try/catch but don't await it
+      // The key here is to ensure the process gets started but doesn't
+      // block the redirect or depend on this function's execution context
+      try {
+        console.log("Starting async VC validation in Vercel environment for ID:", validationId);
+        
+        // Start the process without awaiting
+        processVCValidationAsync(validationId, formData.businessIdea, formData.additionalContext || {})
+          .catch(error => {
+            console.error("Background processing error (Vercel):", error);
+          });
+      } catch (err) {
+        console.error("Error initiating async process in Vercel:", err);
+        // Don't rethrow, we still want to redirect
+      }
+    } else {
+      // In local/non-Vercel: Use Promise for clearer handling
+      console.log("Starting async VC validation in non-Vercel environment for ID:", validationId);
+      Promise.resolve().then(() => {
+        processVCValidationAsync(validationId, formData.businessIdea, formData.additionalContext || {})
+          .catch(error => {
+            console.error("Background processing error (non-Vercel):", error);
+          });
+      });
+    }
 
     // Revalidate the paths (both potential URLs)
     revalidatePath(`/validate/vc-report/${validationId}`);
@@ -73,8 +90,7 @@ export async function submitVCValidationForm(formData: {
     // Log the redirection for debugging
     console.log(`Redirecting to VC report page - Form ID: ${formId}, Validation ID: ${validationId}`);
 
-    // Redirect to the report page using the validation ID to ensure accuracy
-    // The page will show "processing" state
+    // Redirect to the report page 
     redirect(`/validate/vc-report/${validationId}`);
     
     // This return statement is technically unreachable due to the redirect
