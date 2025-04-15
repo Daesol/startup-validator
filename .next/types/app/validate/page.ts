@@ -1,4 +1,4 @@
-// File: /Users/artfct/Documents/Software Business/startup-validator/src/app/validate/page.tsx
+// File: /Users/tammyartawong/Documents/Foundr Club/startup-validator/src/app/validate/page.tsx
 import * as entry from '../../../../src/app/validate/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

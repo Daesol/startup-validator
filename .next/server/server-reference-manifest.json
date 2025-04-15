@@ -1,17 +1,1 @@
-{
-  "node": {
-    "40d64fb9bfd76b02653ab9ccb41969471bb1655fef": {
-      "workers": {
-        "app/validate/vc-validation/page": {
-          "moduleId": "(action-browser)/./node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22%2FUsers%2Fartfct%2FDocuments%2FSoftware%20Business%2Fstartup-validator%2Fsrc%2Ffeatures%2Fvalidation%2Factions%2Fsubmit-vc-validation-form.ts%22%2C%5B%7B%22id%22%3A%2240d64fb9bfd76b02653ab9ccb41969471bb1655fef%22%2C%22exportedName%22%3A%22submitVCValidationForm%22%7D%5D%5D%5D&__client_imported__=true!",
-          "async": false
-        }
-      },
-      "layer": {
-        "app/validate/vc-validation/page": "action-browser"
-      }
-    }
-  },
-  "edge": {},
-  "encryptionKey": "VhLhUHeX6bJuXGmGaoc9Z58ToqXxitzvvSxuUr2eQhs="
-}
+{"node":{"40072c6ce55a4145ca3023eb78216df4d057fc003b":{"workers":{"app/validate/advance/page":{"moduleId":"21307","async":false}},"layer":{"app/validate/advance/page":"action-browser"}},"4081facfc29f0fdcc980159eca5fe6e92bfd611366":{"workers":{"app/validate/general/page":{"moduleId":"76567","async":false}},"layer":{"app/validate/general/page":"action-browser"}},"404d2b0c08c7071d19f9f21954296181a94149a970":{"workers":{"app/validate/vc-validation/page":{"moduleId":"95538","async":false}},"layer":{"app/validate/vc-validation/page":"action-browser"}}},"edge":{},"encryptionKey":"VhLhUHeX6bJuXGmGaoc9Z58ToqXxitzvvSxuUr2eQhs="}

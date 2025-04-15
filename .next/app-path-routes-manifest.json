@@ -1,0 +1,21 @@
+{
+  "/api/analyze-idea/route": "/api/analyze-idea",
+  "/api/analyze/route": "/api/analyze",
+  "/api/test/route": "/api/test",
+  "/api/improve-idea/route": "/api/improve-idea",
+  "/admin/page": "/admin",
+  "/_not-found/page": "/_not-found",
+  "/validate/advance/page": "/validate/advance",
+  "/validate/initial-score/page": "/validate/initial-score",
+  "/test/page": "/test",
+  "/page": "/",
+  "/validate/general/page": "/validate/general",
+  "/validate/page": "/validate",
+  "/validate/report/[id]/page": "/validate/report/[id]",
+  "/validate/report/page": "/validate/report",
+  "/validate/initial/page": "/validate/initial",
+  "/validate/vc-report/[id]/page": "/validate/vc-report/[id]",
+  "/validations/page": "/validations",
+  "/validate/vc-validation/page": "/validate/vc-validation",
+  "/validations/[id]/page": "/validations/[id]"
+}

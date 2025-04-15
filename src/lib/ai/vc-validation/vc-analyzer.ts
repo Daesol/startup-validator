@@ -23,9 +23,63 @@ import {
   getVCLeadPrompt 
 } from "./agent-prompts";
 
+/**
+ * IMPORTANT DEPLOYMENT NOTES:
+ * 
+ * When deploying to Vercel, there are several considerations:
+ * 1. Serverless function timeouts (max 60s on hobby, 300s on pro plan)
+ * 2. OpenAI API calls might time out or fail due to network issues
+ * 3. The validation process needs to continue after sending response to client
+ * 
+ * This file implements retry logic and proper error handling to ensure
+ * the validation process is as reliable as possible in serverless environments.
+ * 
+ * Configured maxDuration in next.config.mjs should match the Vercel plan limits.
+ * 
+ * MODEL CHOICE:
+ * Using GPT-3.5-turbo instead of GPT-4 models for significantly faster processing
+ * and better reliability in serverless environments. This trade-off improves:
+ * - Response time (5-10x faster than GPT-4)
+ * - Success rate within Vercel timeouts
+ * - Overall user experience by providing quicker feedback
+ */
+
+// Enhanced OpenAI client with timeouts and retries for reliability in serverless environments
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  timeout: 60000, // 60 second timeout for API requests
+  maxRetries: 3, // Retry failed requests up to 3 times
 });
+
+// Helper function to handle API calls with retries
+async function callOpenAIWithRetry<T>(apiCall: () => Promise<T>, maxRetries = 2): Promise<T> {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`Retrying OpenAI API call, attempt ${attempt}/${maxRetries}`);
+        // Exponential backoff with jitter
+        const delay = Math.min(1000 * (2 ** attempt) + Math.random() * 1000, 10000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      
+      return await apiCall();
+    } catch (error) {
+      lastError = error;
+      console.error(`OpenAI API error (attempt ${attempt}/${maxRetries}):`, 
+        error instanceof Error ? error.message : "Unknown error");
+      
+      // If we've reached max retries, throw the error
+      if (attempt === maxRetries) {
+        throw error;
+      }
+    }
+  }
+  
+  // This should never be reached due to the throw above, but TypeScript needs it
+  throw lastError;
+}
 
 // Main validation function that coordinates the multi-agent process
 export async function runVCValidation(
@@ -416,21 +470,11 @@ async function runProblemAgentAnalysis(context: Record<string, any>): Promise<Pr
   const businessIdea = context.user_input || "";
   console.log(`Problem agent analyzing business idea (length: ${businessIdea.length}): "${businessIdea.substring(0, 50)}..."`);
   
-  // Define maximum retries
-  const MAX_RETRIES = 2;
-  let retryCount = 0;
-  let lastError: Error | null = null;
-  
-  // Retry loop for API calls
-  while (retryCount <= MAX_RETRIES) {
-    try {
-      // If this isn't the first attempt, log that we're retrying
-      if (retryCount > 0) {
-        console.log(`Retrying Problem Agent analysis (attempt ${retryCount}/${MAX_RETRIES})`);
-      }
-      
-      const response = await openai.chat.completions.create({
-        model: "gpt-3.5-turbo-1106", // Fallback to a more stable model after first try
+  try {
+    // Use our retry helper for more reliable API calls
+    const response = await callOpenAIWithRetry(() => 
+      openai.chat.completions.create({
+        model: "gpt-3.5-turbo", // Use faster model for Vercel deployment
         messages: [
           {
             role: "system",
@@ -443,74 +487,59 @@ async function runProblemAgentAnalysis(context: Record<string, any>): Promise<Pr
         ],
         temperature: 0.5, // Lower temperature for more consistent results
         response_format: { type: "json_object" }
-      });
-      
-      const content = response.choices[0].message.content;
-      if (!content) {
-        throw new Error("No response from Problem Agent");
-      }
-      
-      // Try to parse the response as JSON, with error handling
-      try {
-        const analysis = JSON.parse(content) as ProblemAnalysis;
-        
-        // Validate the minimal required fields exist
-        if (!analysis.improved_problem_statement) {
-          analysis.improved_problem_statement = businessIdea.substring(0, 200);
-        }
-        if (!analysis.severity_index || typeof analysis.severity_index !== 'number') {
-          analysis.severity_index = 5; // Default mid-level severity
-        }
-        if (!analysis.problem_framing) {
-          analysis.problem_framing = 'niche'; // Default to niche framing
-        }
-        if (!analysis.root_causes || !Array.isArray(analysis.root_causes)) {
-          analysis.root_causes = ["Unable to determine root causes"];
-        }
-        if (!analysis.score || typeof analysis.score !== 'number') {
-          analysis.score = 70; // Default reasonable score
-        }
-        if (!analysis.reasoning) {
-          analysis.reasoning = "Analysis completed with default values";
-        }
-        
-        return analysis;
-      } catch (parseError: unknown) {
-        // If JSON parsing fails, throw a clear error
-        const errorMessage = parseError instanceof Error ? parseError.message : "Unknown parsing error";
-        console.error("Problem Agent returned invalid JSON:", errorMessage);
-        console.error("Response content:", content.substring(0, 500));
-        throw new Error(`Problem Agent returned invalid JSON: ${errorMessage}`);
-      }
-    } catch (error) {
-      // Log the error and store it for potential later use
-      lastError = error instanceof Error ? error : new Error(String(error));
-      console.error(`Problem Agent analysis failed (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, lastError.message);
-      
-      // Increment retry counter and try again if not reached max
-      retryCount++;
-      
-      // Wait before retrying (exponential backoff)
-      if (retryCount <= MAX_RETRIES) {
-        const backoffMs = Math.min(1000 * Math.pow(2, retryCount - 1), 8000);
-        console.log(`Waiting ${backoffMs}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, backoffMs));
-      }
+      })
+    );
+    
+    const content = response.choices[0].message.content;
+    if (!content) {
+      throw new Error("No response from Problem Agent");
     }
+    
+    // Try to parse the response as JSON, with error handling
+    try {
+      const analysis = JSON.parse(content) as ProblemAnalysis;
+      
+      // Validate the minimal required fields exist
+      if (!analysis.improved_problem_statement) {
+        analysis.improved_problem_statement = businessIdea.substring(0, 200);
+      }
+      if (!analysis.severity_index || typeof analysis.severity_index !== 'number') {
+        analysis.severity_index = 5; // Default mid-level severity
+      }
+      if (!analysis.problem_framing) {
+        analysis.problem_framing = 'niche'; // Default to niche framing
+      }
+      if (!analysis.root_causes || !Array.isArray(analysis.root_causes)) {
+        analysis.root_causes = ["Unable to determine root causes"];
+      }
+      if (!analysis.score || typeof analysis.score !== 'number') {
+        analysis.score = 70; // Default reasonable score
+      }
+      if (!analysis.reasoning) {
+        analysis.reasoning = "Analysis completed with default values";
+      }
+      
+      return analysis;
+    } catch (parseError: unknown) {
+      // If JSON parsing fails, throw a clear error
+      const errorMessage = parseError instanceof Error ? parseError.message : "Unknown parsing error";
+      console.error("Problem Agent returned invalid JSON:", errorMessage);
+      console.error("Response content:", content.substring(0, 500));
+      throw new Error(`Problem Agent returned invalid JSON: ${errorMessage}`);
+    }
+  } catch (error) {
+    console.error("Problem Agent analysis failed after retries:", error instanceof Error ? error.message : String(error));
+    
+    // Create a fallback analysis with basic information that matches the ProblemAnalysis interface
+    return {
+      improved_problem_statement: businessIdea.substring(0, 500),
+      severity_index: 5,
+      problem_framing: 'niche' as const,
+      root_causes: ["Unable to determine due to processing issues"],
+      score: 60,
+      reasoning: "Auto-generated due to API processing issues"
+    };
   }
-  
-  // If we've exhausted all retries, create a fallback analysis
-  console.log("All Problem Agent retries failed, generating fallback analysis");
-  
-  // Create a fallback analysis with basic information that matches the ProblemAnalysis interface
-  return {
-    improved_problem_statement: businessIdea.substring(0, 500),
-    severity_index: 5,
-    problem_framing: 'niche' as const,
-    root_causes: ["Unable to determine due to processing issues"],
-    score: 60,
-    reasoning: "Auto-generated due to API processing issues"
-  };
 }
 
 async function runMarketAgentAnalysis(context: Record<string, any>): Promise<MarketAnalysis> {
@@ -520,21 +549,11 @@ async function runMarketAgentAnalysis(context: Record<string, any>): Promise<Mar
   const businessIdea = context.user_input || "";
   console.log(`Market agent analyzing business context (enhanced problem: ${context.enhanced_problem_statement?.substring(0, 50) || "None"}...)`);
   
-  // Define maximum retries
-  const MAX_RETRIES = 2;
-  let retryCount = 0;
-  let lastError: Error | null = null;
-  
-  // Retry loop for API calls
-  while (retryCount <= MAX_RETRIES) {
-    try {
-      // If this isn't the first attempt, log that we're retrying
-      if (retryCount > 0) {
-        console.log(`Retrying Market Agent analysis (attempt ${retryCount}/${MAX_RETRIES})`);
-      }
-      
-      const response = await openai.chat.completions.create({
-        model: retryCount === 0 ? "gpt-4-turbo-preview" : "gpt-3.5-turbo-1106", // Try with GPT-4 first, fallback to 3.5
+  try {
+    // Use our retry helper for more reliable API calls
+    const response = await callOpenAIWithRetry(() => 
+      openai.chat.completions.create({
+        model: "gpt-3.5-turbo", // Use faster model for Vercel deployment
         messages: [
           {
             role: "system",
@@ -547,85 +566,73 @@ async function runMarketAgentAnalysis(context: Record<string, any>): Promise<Mar
         ],
         temperature: 0.5,
         response_format: { type: "json_object" }
-      });
-      
-      const content = response.choices[0].message.content;
-      if (!content) {
-        throw new Error("No response from Market Agent");
-      }
-      
-      // Try to parse the response as JSON, with error handling
-      try {
-        const analysis = JSON.parse(content) as MarketAnalysis;
-        
-        // Validate the minimal required fields exist
-        if (typeof analysis.tam !== 'number' || isNaN(analysis.tam)) {
-          analysis.tam = 1000000000; // Default $1B
-        }
-        if (typeof analysis.sam !== 'number' || isNaN(analysis.sam)) {
-          analysis.sam = analysis.tam * 0.3; // Default 30% of TAM
-        }
-        if (typeof analysis.som !== 'number' || isNaN(analysis.som)) {
-          analysis.som = analysis.sam * 0.1; // Default 10% of SAM
-        }
-        if (!analysis.growth_rate) {
-          analysis.growth_rate = "10-15% annually";
-        }
-        if (!analysis.market_demand) {
-          analysis.market_demand = "Moderate demand with growing interest";
-        }
-        if (!analysis.why_now) {
-          analysis.why_now = "Current market conditions are favorable for this solution";
-        }
-        if (!analysis.score || typeof analysis.score !== 'number') {
-          analysis.score = 65; // Default score
-        }
-        if (!analysis.reasoning) {
-          analysis.reasoning = "Analysis completed with default values";
-        }
-        
-        return analysis;
-      } catch (parseError: unknown) {
-        const errorMessage = parseError instanceof Error ? parseError.message : "Unknown parsing error";
-        console.error("Market Agent returned invalid JSON:", errorMessage);
-        console.error("Response content:", content.substring(0, 500));
-        throw new Error(`Market Agent returned invalid JSON: ${errorMessage}`);
-      }
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      console.error(`Market Agent analysis failed (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, lastError.message);
-      
-      retryCount++;
-      
-      if (retryCount <= MAX_RETRIES) {
-        const backoffMs = Math.min(1000 * Math.pow(2, retryCount - 1), 8000);
-        console.log(`Waiting ${backoffMs}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, backoffMs));
-      }
+      })
+    );
+    
+    const content = response.choices[0].message.content;
+    if (!content) {
+      throw new Error("No response from Market Agent");
     }
+    
+    // Try to parse the response as JSON, with error handling
+    try {
+      const analysis = JSON.parse(content) as MarketAnalysis;
+      
+      // Validate the minimal required fields exist
+      if (typeof analysis.tam !== 'number' || isNaN(analysis.tam)) {
+        analysis.tam = 1000000000; // Default $1B
+      }
+      if (typeof analysis.sam !== 'number' || isNaN(analysis.sam)) {
+        analysis.sam = analysis.tam * 0.3; // Default 30% of TAM
+      }
+      if (typeof analysis.som !== 'number' || isNaN(analysis.som)) {
+        analysis.som = analysis.sam * 0.1; // Default 10% of SAM
+      }
+      if (!analysis.growth_rate) {
+        analysis.growth_rate = "10-15% annually";
+      }
+      if (!analysis.market_demand) {
+        analysis.market_demand = "Moderate demand with growing interest";
+      }
+      if (!analysis.why_now) {
+        analysis.why_now = "Current market conditions are favorable for this solution";
+      }
+      if (!analysis.score || typeof analysis.score !== 'number') {
+        analysis.score = 70; // Default reasonable score
+      }
+      if (!analysis.reasoning) {
+        analysis.reasoning = "Market analysis completed with default values";
+      }
+      
+      return analysis;
+    } catch (parseError: unknown) {
+      const errorMessage = parseError instanceof Error ? parseError.message : "Unknown parsing error";
+      console.error("Market Agent returned invalid JSON:", errorMessage);
+      console.error("Response content:", content.substring(0, 500));
+      throw new Error(`Market Agent returned invalid JSON: ${errorMessage}`);
+    }
+  } catch (error) {
+    console.error("Market Agent analysis failed after retries:", error instanceof Error ? error.message : String(error));
+    
+    // Create a fallback analysis
+    return {
+      tam: 1000000000,
+      sam: 300000000,
+      som: 30000000,
+      growth_rate: "10-15% annually",
+      market_demand: "Unable to determine due to processing issues",
+      why_now: "Current market conditions",
+      score: 60,
+      reasoning: "Auto-generated due to API processing issues"
+    };
   }
-  
-  // If we've exhausted all retries, create a fallback analysis
-  console.log("All Market Agent retries failed, generating fallback analysis");
-  
-  // Create a fallback market analysis
-  return {
-    tam: 1000000000, // $1B
-    sam: 300000000,  // $300M
-    som: 30000000,   // $30M
-    growth_rate: "Unknown, estimated 10-15%",
-    market_demand: "Unable to determine precisely",
-    why_now: "Current market conditions may be suitable",
-    score: 60,
-    reasoning: "Auto-generated due to API processing issues"
-  };
 }
 
 async function runCompetitiveAgentAnalysis(context: Record<string, any>): Promise<CompetitiveAnalysis> {
   const prompt = getCompetitiveAgentPrompt(context);
   
   const response = await openai.chat.completions.create({
-    model: "gpt-4-turbo-preview",
+    model: "gpt-3.5-turbo",
     messages: [
       {
         role: "system",
@@ -652,7 +659,7 @@ async function runUVPAgentAnalysis(context: Record<string, any>): Promise<UVPAna
   const prompt = getUVPAgentPrompt(context);
   
   const response = await openai.chat.completions.create({
-    model: "gpt-4-turbo-preview",
+    model: "gpt-3.5-turbo",
     messages: [
       {
         role: "system",
@@ -679,7 +686,7 @@ async function runBusinessModelAgentAnalysis(context: Record<string, any>): Prom
   const prompt = getBusinessModelAgentPrompt(context);
   
   const response = await openai.chat.completions.create({
-    model: "gpt-4-turbo-preview",
+    model: "gpt-3.5-turbo",
     messages: [
       {
         role: "system",
@@ -706,7 +713,7 @@ async function runValidationAgentAnalysis(context: Record<string, any>): Promise
   const prompt = getValidationAgentPrompt(context);
   
   const response = await openai.chat.completions.create({
-    model: "gpt-4-turbo-preview",
+    model: "gpt-3.5-turbo",
     messages: [
       {
         role: "system",
@@ -733,7 +740,7 @@ async function runLegalAgentAnalysis(context: Record<string, any>): Promise<Lega
   const prompt = getLegalAgentPrompt(context);
   
   const response = await openai.chat.completions.create({
-    model: "gpt-4-turbo-preview",
+    model: "gpt-3.5-turbo",
     messages: [
       {
         role: "system",
@@ -760,7 +767,7 @@ async function runMetricsAgentAnalysis(context: Record<string, any>): Promise<Me
   const prompt = getMetricsAgentPrompt(context);
   
   const response = await openai.chat.completions.create({
-    model: "gpt-4-turbo-preview",
+    model: "gpt-3.5-turbo",
     messages: [
       {
         role: "system",
@@ -790,7 +797,7 @@ async function runVCLeadSynthesis(
   const prompt = getVCLeadPrompt(context, agentAnalyses);
   
   const response = await openai.chat.completions.create({
-    model: "gpt-4-turbo-preview",
+    model: "gpt-3.5-turbo",
     messages: [
       {
         role: "system",

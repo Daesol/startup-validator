@@ -49,9 +49,22 @@ export async function submitVCValidationForm(formData: {
     // Update status to "in_progress"
     await updateVCValidationStatus(validationId, "in_progress");
     
-    // Start the VC validation process asynchronously
-    // We don't want to block the redirect, so we don't await this
-    processVCValidationAsync(validationId, formData.businessIdea, formData.additionalContext || {});
+    // Start the VC validation process asynchronously without awaiting its completion
+    // This is critical for Vercel deployment to allow the function to return quickly
+    // while the background processing continues
+    
+    // Use Promise-based approach to ensure the process starts but doesn't block the response
+    Promise.resolve().then(() => {
+      console.log("Starting async VC validation process for ID:", validationId);
+      processVCValidationAsync(validationId, formData.businessIdea, formData.additionalContext || {})
+        .catch(error => {
+          console.error("Caught error in async validation process:", error);
+          // This error handling happens after the response has been sent to the client
+          // Make sure errors are logged to Vercel logs for debugging
+        });
+    }).catch(err => {
+      console.error("Error initiating async process:", err);
+    });
 
     // Revalidate the paths (both potential URLs)
     revalidatePath(`/validate/vc-report/${validationId}`);

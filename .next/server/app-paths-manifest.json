@@ -1,6 +1,21 @@
 {
-  "/validate/vc-validation/page": "app/validate/vc-validation/page.js",
+  "/api/analyze-idea/route": "app/api/analyze-idea/route.js",
+  "/api/analyze/route": "app/api/analyze/route.js",
+  "/api/test/route": "app/api/test/route.js",
+  "/api/improve-idea/route": "app/api/improve-idea/route.js",
+  "/admin/page": "app/admin/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/validate/advance/page": "app/validate/advance/page.js",
+  "/validate/initial-score/page": "app/validate/initial-score/page.js",
+  "/test/page": "app/test/page.js",
+  "/page": "app/page.js",
+  "/validate/general/page": "app/validate/general/page.js",
   "/validate/page": "app/validate/page.js",
+  "/validate/report/[id]/page": "app/validate/report/[id]/page.js",
+  "/validate/report/page": "app/validate/report/page.js",
+  "/validate/initial/page": "app/validate/initial/page.js",
   "/validate/vc-report/[id]/page": "app/validate/vc-report/[id]/page.js",
-  "/page": "app/page.js"
+  "/validations/page": "app/validations/page.js",
+  "/validate/vc-validation/page": "app/validate/vc-validation/page.js",
+  "/validations/[id]/page": "app/validations/[id]/page.js"
 }
