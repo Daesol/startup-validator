@@ -40,7 +40,7 @@ const nextConfig = {
   // Increase the Vercel function timeout
   functions: {
     // Increase the maximum duration for all functions (default is 10 seconds)
-    maxDuration: 60, // Maximum allowed: 60 seconds on Hobby, 300 on Pro plan
+    maxDuration: 300, // Maximum allowed: 60 seconds on Hobby, 300 on Pro plan
   },
 }
 
