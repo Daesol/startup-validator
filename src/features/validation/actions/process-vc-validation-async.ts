@@ -303,12 +303,14 @@ export async function processVCValidationAsync(
      // Start with the problem agent by making a fetch request to the API endpoint
      const apiUrl = `${process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : ''}/api/process-agent`;
      
-     console.log("Fetching from:", apiUrl);
-     
-     const response = await fetch(apiUrl, {
+     fetch(apiUrl, {
        method: 'POST',
        headers: {
          'Content-Type': 'application/json',
+         
+         ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? {
+           'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+         } : {})
        },
        body: JSON.stringify({
          validationId,
@@ -318,10 +320,6 @@ export async function processVCValidationAsync(
        }),
      });
      
-     if (!response.ok) {
-       const errorData = await response.json();
-       throw new Error(`API error: ${errorData.message || response.statusText}`);
-     }
     
   } catch (error) {
     console.error("Error starting chunked validation process:", error);
@@ -444,6 +442,9 @@ export async function processNextAgent(
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
+                ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? {
+                  'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+                } : {})
               },
               body: JSON.stringify({
                 validationId,
@@ -515,6 +516,9 @@ export async function processNextAgent(
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? {
+                'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+              } : {})
             },
             body: JSON.stringify({
               validationId,
@@ -557,6 +561,9 @@ export async function processNextAgent(
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? {
+              'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+            } : {})
           },
           body: JSON.stringify({
             validationId,
