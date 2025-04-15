@@ -302,6 +302,9 @@ export async function processVCValidationAsync(
     //await processNextAgent(validationId, "problem", businessIdea, additionalContext);
      // Start with the problem agent by making a fetch request to the API endpoint
      const apiUrl = `${process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : ''}/api/process-agent`;
+     
+     console.log("Fetching from:", apiUrl);
+     
      const response = await fetch(apiUrl, {
        method: 'POST',
        headers: {
