@@ -301,7 +301,7 @@ export async function processVCValidationAsync(
     // Start with the problem agent
     //await processNextAgent(validationId, "problem", businessIdea, additionalContext);
      // Start with the problem agent by making a fetch request to the API endpoint
-     const apiUrl = '/api/validation/process-agent';
+     const apiUrl = `/api/process-agent`;
      const response = await fetch(apiUrl, {
        method: 'POST',
        headers: {
@@ -436,7 +436,7 @@ export async function processNextAgent(
         
         // Use setTimeout to prevent stack overflow from recursive calls
         setTimeout(async () => {
-            const apiUrl = '/api/validation/process-agent';
+            const apiUrl = `/api/process-agent`;
             fetch(apiUrl, {
               method: 'POST',
               headers: {
@@ -507,7 +507,7 @@ export async function processNextAgent(
         await logToDatabase(validationId, `Skipping to next agent ${nextAgent} after error`);
         
         setTimeout(() => {
-          const apiUrl = '/api/validation/process-agent';
+          const apiUrl = `/api/process-agent`;
           fetch(apiUrl, {
             method: 'POST',
             headers: {
@@ -549,7 +549,7 @@ export async function processNextAgent(
       console.log(`[CHUNKED] Skipping to next agent ${nextAgent} after unhandled error`);
       
       setTimeout(() => {
-        const apiUrl = '/api/validation/process-agent';
+        const apiUrl = `/api/process-agent`;
          fetch(apiUrl, {
           method: 'POST',
           headers: {
