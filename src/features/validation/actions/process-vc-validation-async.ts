@@ -299,7 +299,26 @@ export async function processVCValidationAsync(
     await checkpoint("starting-chunked-processing");
     
     // Start with the problem agent
-    await processNextAgent(validationId, "problem", businessIdea, additionalContext);
+    //await processNextAgent(validationId, "problem", businessIdea, additionalContext);
+     // Start with the problem agent by making a fetch request to the API endpoint
+     const apiUrl = '/api/validation/process-agent';
+     const response = await fetch(apiUrl, {
+       method: 'POST',
+       headers: {
+         'Content-Type': 'application/json',
+       },
+       body: JSON.stringify({
+         validationId,
+         agentType: "problem",
+         businessIdea,
+         additionalContext
+       }),
+     });
+     
+     if (!response.ok) {
+       const errorData = await response.json();
+       throw new Error(`API error: ${errorData.message || response.statusText}`);
+     }
     
   } catch (error) {
     console.error("Error starting chunked validation process:", error);
@@ -320,7 +339,7 @@ export async function processVCValidationAsync(
  * Process a single agent and then queue the next one if needed
  * This function is called recursively for each agent
  */
-async function processNextAgent(
+export async function processNextAgent(
   validationId: string,
   agentType: VCAgentType | undefined,
   businessIdea: string,
@@ -416,8 +435,23 @@ async function processNextAgent(
         await logToDatabase(validationId, `Queueing next agent: ${agentResult.next_agent}`);
         
         // Use setTimeout to prevent stack overflow from recursive calls
-        setTimeout(() => {
-          processNextAgent(validationId, agentResult.next_agent, businessIdea, additionalContext)
+        setTimeout(async () => {
+            const apiUrl = '/api/validation/process-agent';
+            fetch(apiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                validationId,
+                agentType: agentResult.next_agent,
+                businessIdea,
+                additionalContext
+              }),
+            });
+            
+     
+          /*processNextAgent(validationId, agentResult.next_agent, businessIdea, additionalContext)
             .catch(error => {
               console.error(`[CHUNKED] Error processing next agent ${agentResult.next_agent}:`, error);
               logToDatabase(validationId, `Error processing next agent ${agentResult.next_agent}`, {
@@ -436,7 +470,7 @@ async function processNextAgent(
                 console.log(`[CHUNKED] Skipping to agent ${skipToAgent} after error`);
                 processNextAgent(validationId, skipToAgent, businessIdea, additionalContext);
               }
-            });
+            });*/
         }, 1000);
       } else {
         // No next agent but we should have a report by now
@@ -473,7 +507,20 @@ async function processNextAgent(
         await logToDatabase(validationId, `Skipping to next agent ${nextAgent} after error`);
         
         setTimeout(() => {
-          processNextAgent(validationId, nextAgent, businessIdea, additionalContext);
+          const apiUrl = '/api/validation/process-agent';
+          fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              validationId,
+              agentType: nextAgent,
+              businessIdea,
+              additionalContext
+            }),
+          });
+          //processNextAgent(validationId, nextAgent, businessIdea, additionalContext);
         }, 1000);
       } else {
         // We've reached the end but with errors, generate a fallback report
@@ -502,7 +549,20 @@ async function processNextAgent(
       console.log(`[CHUNKED] Skipping to next agent ${nextAgent} after unhandled error`);
       
       setTimeout(() => {
-        processNextAgent(validationId, nextAgent, businessIdea, additionalContext);
+        const apiUrl = '/api/validation/process-agent';
+         fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            validationId,
+            agentType: nextAgent,
+            businessIdea,
+            additionalContext
+          }),
+        });
+        //processNextAgent(validationId, nextAgent, businessIdea, additionalContext);
       }, 1000);
     } else {
       // Generate a fallback report if we hit an error on the last agent

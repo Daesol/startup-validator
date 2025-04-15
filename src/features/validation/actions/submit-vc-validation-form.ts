@@ -83,21 +83,23 @@ export async function submitVCValidationForm(formData: {
     
     // RELIABILITY IMPROVEMENT: Start the background processing with a short timeout
     // to ensure it has enough time to get started before the redirect
+    await processVCValidationAsync(validationId, formData.businessIdea, formData.additionalContext || {})
+    .catch(error => {
+      console.error("Background processing error:", error);
+    });
+
+    /*
     Promise.resolve().then(async () => {
       try {
         // Small delay to ensure background process has time to initialize
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        console.log("Starting background validation process");
-        
-        processVCValidationAsync(validationId, formData.businessIdea, formData.additionalContext || {})
-          .catch(error => {
-            console.error("Background processing error:", error);
-          });
+      
+       
       } catch (error) {
         console.error("Error starting background process:", error);
       }
-    });
+    });*/
     
     // Revalidate the paths
     revalidatePath(`/validate/vc-report/${validationId}`);
