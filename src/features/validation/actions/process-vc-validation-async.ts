@@ -68,7 +68,7 @@ export async function processVCValidationAsync(
   businessIdea: string,
   additionalContext: Record<string, any> = {}
 ): Promise<void> {
-  console.log(`Starting background VC validation for ID ${validationId}`);
+  console.log(`[DEBUG] Starting background VC validation for ID ${validationId}`);
   await logToDatabase(validationId, "Background validation process started", {
     environment: process.env.VERCEL === '1' ? 'Vercel' : 'Local',
     businessIdeaLength: businessIdea.length,
@@ -78,13 +78,29 @@ export async function processVCValidationAsync(
   // Add a timeout safety net for the entire process
   const processTimeoutMs = 180000; // 3 minutes max for full process
   const processTimeout = setTimeout(() => {
+    console.log(`[DEBUG] Process timeout triggered after ${processTimeoutMs}ms`);
     logToDatabase(validationId, "Process timeout triggered - 3 minute limit reached", {
       error: "Process timeout",
       timestamp: new Date().toISOString()
     });
   }, processTimeoutMs);
   
+  // Add checkpoints at each major step
+  let lastCheckpoint = "start";
+  
+  // Checkpoint logging helper
+  const checkpoint = async (name: string, details?: Record<string, any>) => {
+    lastCheckpoint = name;
+    console.log(`[DEBUG-CHECKPOINT] ${name}`);
+    await logToDatabase(validationId, `CHECKPOINT: ${name}`, {
+      ...details,
+      timestamp: new Date().toISOString()
+    });
+  };
+  
   try {
+    await checkpoint("before-validation-call");
+    
     // Run the validation process - now optimized for reliability with just Problem Analysis
     await logToDatabase(validationId, "Calling runVCValidation with enhanced timeout", {
       apiTimeout: process.env.VERCEL === '1' ? '30s' : '60s'
@@ -92,16 +108,26 @@ export async function processVCValidationAsync(
     
     // Start the validation process with a long timeout
     const validationTimeout = setTimeout(() => {
+      console.log(`[DEBUG] Validation API timeout check after 45s - lastCheckpoint: ${lastCheckpoint}`);
       logToDatabase(validationId, "Validation API timeout - possible hung request", {
         error: "API timeout",
+        lastCheckpoint,
         timestamp: new Date().toISOString()
       });
     }, 45000); // 45 second check for validation call
     
+    console.log(`[DEBUG] About to call runVCValidation`);
     const validationResult = await runVCValidation(
       businessIdea,
       additionalContext
     );
+    console.log(`[DEBUG] runVCValidation returned, success: ${validationResult.success}`);
+    
+    await checkpoint("after-validation-call", { 
+      success: validationResult.success,
+      agentCount: Object.keys(validationResult.agent_analyses || {}).filter(k => validationResult.agent_analyses[k] !== null).length,
+      hasError: !!validationResult.error
+    });
     
     // Clear the validation timeout since we got a response
     clearTimeout(validationTimeout);
@@ -119,8 +145,11 @@ export async function processVCValidationAsync(
       console.error("VC validation failed:", validationResult.error);
       await logToDatabase(validationId, "Validation process failed", { error: validationResult.error });
       await updateVCValidationStatus(validationId, "failed");
+      clearTimeout(processTimeout);
       return;
     }
+    
+    await checkpoint("before-processing-analyses");
     
     // Process and update the individual agent analyses
     const { agent_analyses: agentAnalyses, vc_report: vcReport } = validationResult;
@@ -133,6 +162,9 @@ export async function processVCValidationAsync(
     for (const [agentType, analysis] of Object.entries(agentAnalyses || {})) {
       try {
         if (!analysis) continue;
+        
+        await checkpoint(`processing-${agentType}-analysis`);
+        
         console.log(`Updating ${agentType} analysis for validation ${validationId}`);
         await logToDatabase(validationId, `Processing ${agentType} agent result`);
         
@@ -159,6 +191,8 @@ export async function processVCValidationAsync(
       }
     }
     
+    await checkpoint("before-updating-report");
+    
     // Update the VC validation report
     try {
       console.log("Updating VC validation report for ID:", validationId);
@@ -178,6 +212,7 @@ export async function processVCValidationAsync(
         await logToDatabase(validationId, "Saved fallback report", { status: "completed_with_errors" });
         
         console.log("[ASYNC] Saved fallback report and updated status to 'completed_with_errors'");
+        clearTimeout(processTimeout);
         return;
       }
     } catch (error) {
@@ -186,6 +221,8 @@ export async function processVCValidationAsync(
         error: error instanceof Error ? error.message : String(error) 
       });
     }
+    
+    await checkpoint("finishing-process");
     
     // Mark the validation as complete
     await updateVCValidationStatus(validationId, "completed");
@@ -199,7 +236,8 @@ export async function processVCValidationAsync(
     console.error("Unhandled error in VC validation process:", error);
     await logToDatabase(validationId, "Unhandled error in validation process", { 
       error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined
+      stack: error instanceof Error ? error.stack : undefined,
+      lastCheckpoint
     });
     
     try {
