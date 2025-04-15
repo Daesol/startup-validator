@@ -1,6 +1,60 @@
 import { setVCReport, addAgentAnalysis, updateVCValidationStatus } from "@/lib/supabase/vc-validation-service";
 import { runVCValidation } from "@/lib/ai/vc-validation/vc-analyzer";
 import type { VCReport, VCAgentType } from "@/lib/supabase/types";
+import { supabase } from "@/lib/supabase/vc-validation-service";
+
+/**
+ * Adds a processing log entry to the database for debugging
+ * @param validationId The validation ID
+ * @param message The log message
+ * @param details Optional details object
+ */
+async function logToDatabase(
+  validationId: string, 
+  message: string, 
+  details?: Record<string, any>
+): Promise<void> {
+  try {
+    // First get current logs
+    const { data, error: fetchError } = await supabase
+      .from("vc_validation_analyses")
+      .select("processing_logs")
+      .eq("id", validationId)
+      .single();
+      
+    if (fetchError) {
+      console.error("Error fetching existing logs:", fetchError);
+      return;
+    }
+    
+    // Create new log entry
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      message,
+      details
+    };
+    
+    // Append to existing logs or create new array
+    const updatedLogs = Array.isArray(data?.processing_logs) 
+      ? [...data.processing_logs, logEntry]
+      : [logEntry];
+    
+    // Update with new logs
+    const { error } = await supabase
+      .from("vc_validation_analyses")
+      .update({
+        processing_logs: updatedLogs,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", validationId);
+      
+    if (error) {
+      console.error("Error adding log to database:", error);
+    }
+  } catch (e) {
+    console.error("Failed to write log to database:", e);
+  }
+}
 
 /**
  * Runs the VC validation process asynchronously
@@ -15,30 +69,39 @@ export async function processVCValidationAsync(
   additionalContext: Record<string, any> = {}
 ): Promise<void> {
   console.log(`Starting background VC validation for ID ${validationId}`);
+  await logToDatabase(validationId, "Background validation process started");
   
   try {
     // Run the validation process - now optimized for reliability with just Problem Analysis
+    await logToDatabase(validationId, "Calling runVCValidation");
     const validationResult = await runVCValidation(
       businessIdea,
       additionalContext
     );
     
     console.log("VC validation result:", JSON.stringify(validationResult.success));
+    await logToDatabase(validationId, "runVCValidation returned", { success: validationResult.success });
     
     if (!validationResult.success) {
       console.error("VC validation failed:", validationResult.error);
+      await logToDatabase(validationId, "Validation process failed", { error: validationResult.error });
       await updateVCValidationStatus(validationId, "failed");
       return;
     }
     
     // Process and update the individual agent analyses
     const { agent_analyses: agentAnalyses, vc_report: vcReport } = validationResult;
+    await logToDatabase(validationId, "Processing agent analyses", { 
+      agentCount: Object.keys(agentAnalyses || {}).length,
+      hasReport: !!vcReport
+    });
     
     // Store each agent's analysis separately
     for (const [agentType, analysis] of Object.entries(agentAnalyses || {})) {
       try {
         if (!analysis) continue;
         console.log(`Updating ${agentType} analysis for validation ${validationId}`);
+        await logToDatabase(validationId, `Processing ${agentType} agent result`);
         
         // Use type assertion to access properties safely
         const typedAnalysis = analysis as any;
@@ -52,8 +115,13 @@ export async function processVCValidationAsync(
           typedAnalysis.reasoning || "Analysis completed",
           typedAnalysis.metadata || {}
         );
+        
+        await logToDatabase(validationId, `Successfully stored ${agentType} agent result`);
       } catch (error) {
         console.error(`Error updating ${agentType} analysis:`, error);
+        await logToDatabase(validationId, `Error processing ${agentType} agent`, { 
+          error: error instanceof Error ? error.message : String(error) 
+        });
         // Continue processing other analyses even if one fails
       }
     }
@@ -61,33 +129,51 @@ export async function processVCValidationAsync(
     // Update the VC validation report
     try {
       console.log("Updating VC validation report for ID:", validationId);
+      await logToDatabase(validationId, "Updating final VC report");
+      
       if (vcReport) {
         await updateVCValidationReport(validationId, vcReport);
+        await logToDatabase(validationId, "Successfully updated VC report");
       } else {
         // Generate a fallback report if no VC report was provided
         console.log("[ASYNC] No VC report in result, using fallback report generation");
+        await logToDatabase(validationId, "No VC report in result, generating fallback");
+        
         const fallbackReport = generateFallbackReport(businessIdea, validationResult.agent_analyses);
         await setVCReport(validationId, fallbackReport, 65);
         await updateVCValidationStatus(validationId, "completed_with_errors");
+        await logToDatabase(validationId, "Saved fallback report", { status: "completed_with_errors" });
+        
         console.log("[ASYNC] Saved fallback report and updated status to 'completed_with_errors'");
         return;
       }
     } catch (error) {
       console.error("Error updating VC report:", error);
+      await logToDatabase(validationId, "Error updating VC report", { 
+        error: error instanceof Error ? error.message : String(error) 
+      });
     }
     
     // Mark the validation as complete
     await updateVCValidationStatus(validationId, "completed");
+    await logToDatabase(validationId, "Validation process completed successfully", { status: "completed" });
     console.log(`Completed VC validation for ID ${validationId}`);
     
   } catch (error) {
     console.error("Unhandled error in VC validation process:", error);
+    await logToDatabase(validationId, "Unhandled error in validation process", { 
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     
     try {
       // Try to update the status to failed
       await handleValidationError(validationId, businessIdea, error);
     } catch (statusUpdateError) {
       console.error("Failed to update validation status:", statusUpdateError);
+      await logToDatabase(validationId, "Failed to handle validation error", { 
+        error: statusUpdateError instanceof Error ? statusUpdateError.message : String(statusUpdateError) 
+      });
     }
   }
 }

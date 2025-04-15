@@ -136,6 +136,13 @@ export default function VCReportPage() {
                             
       console.log(`Validation check: status=${vcData.validation.status}, agents=${currentAgentCount}/8, allRequired=${allRequiredAgentsComplete}, hasReport=${hasValidReport}, isComplete=${isComplete}`);
       
+      // Log processing logs if they exist (for debugging)
+      // Use type assertion since processing_logs might not be in the type definition yet
+      const validationWithLogs = vcData.validation as any;
+      if (validationWithLogs.processing_logs && Array.isArray(validationWithLogs.processing_logs)) {
+        console.log("Processing logs:", validationWithLogs.processing_logs);
+      }
+      
       // Final completion logic with fallbacks
       if (isComplete) {
         // Perfect case - everything completed properly
