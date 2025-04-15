@@ -1,4 +1,5 @@
 {
+  "/api/validation/process-agent/route": "/api/validation/process-agent/route.js",
   "/api/analyze-idea/route": "app/api/analyze-idea/route.js",
   "/api/analyze/route": "app/api/analyze/route.js",
   "/api/test/route": "app/api/test/route.js",

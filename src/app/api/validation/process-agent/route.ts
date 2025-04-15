@@ -15,25 +15,22 @@ export async function POST(request: NextRequest) {
     
     console.log(`[API] Processing agent ${agentType} for validation ${validationId}`);
     
-    // Process agent in the background
-    // We use Promise.resolve().then() to run this asynchronously without waiting for completion
-    Promise.resolve().then(async () => {
-      try {
-        await processNextAgent(
-          validationId,
-          agentType as VCAgentType,
-          businessIdea,
-          additionalContext || {}
-        );
-      } catch (error) {
-        console.error("[API] Background agent processing error:", error);
-      }
-    });
+
+    await processNextAgent(
+        validationId,
+        agentType as VCAgentType,
+        businessIdea,
+        additionalContext || {}
+    );
+   
+
     
     // Return immediate success response
     return NextResponse.json({ 
       success: true, 
-      message: `Agent ${agentType} processing initiated` 
+      message: `Agent ${agentType} processing initiated`,
+  
+
     });
   } catch (error) {
     console.error("[API] Error in process-agent API route:", error);

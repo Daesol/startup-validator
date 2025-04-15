@@ -54,7 +54,6 @@ const openai = new OpenAI({
   timeout: API_TIMEOUT, // Timeout for API requests
   maxRetries: IS_VERCEL ? 2 : 3, // Increase retries
 });
-console.log("api key", process.env.OPENAI_API_KEY);
 
 // Helper function to handle API calls with retries
 async function callOpenAIWithRetry<T>(apiCall: () => Promise<T>, maxRetries = 2): Promise<T> {
