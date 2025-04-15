@@ -46,13 +46,13 @@ import {
 
 // Define constants for environment detection and timeouts
 const IS_VERCEL = process.env.VERCEL === '1';
-const API_TIMEOUT = IS_VERCEL ? 20000 : 60000; // 20 seconds for Vercel, 60 for other environments
+const API_TIMEOUT = IS_VERCEL ? 10000 : 30000; // 10 seconds for Vercel, 30 for other environments
 
 // Enhanced OpenAI client with timeouts and retries for reliability in serverless environments
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  timeout: API_TIMEOUT, // Longer timeout for API requests
-  maxRetries: IS_VERCEL ? 2 : 3, // Increased retries in Vercel for better reliability
+  timeout: API_TIMEOUT, // Timeout for API requests
+  maxRetries: IS_VERCEL ? 1 : 2, // Fewer retries in Vercel
 });
 
 // Helper function to handle API calls with retries
@@ -100,7 +100,7 @@ export async function runVCValidation(
 }> {
   console.log(`[VC-VALIDATION] Starting VC validation process`);
   console.log(`[VC-VALIDATION] Environment: ${IS_VERCEL ? 'Vercel serverless' : 'Non-Vercel'}`);
-  console.log(`[VC-VALIDATION] API Timeout: ${API_TIMEOUT}ms, Max Retries: ${IS_VERCEL ? '2' : '3'}`);
+  console.log(`[VC-VALIDATION] API Timeout: ${API_TIMEOUT}ms, Max Retries: ${IS_VERCEL ? '1' : '2'}`);
   
   // Combine business idea with additional context
   const context: Record<string, any> = {
@@ -319,21 +319,37 @@ async function runProblemAgentAnalysis(context: Record<string, any>): Promise<Pr
   
   try {
     // Use our retry helper for more reliable API calls
-    console.log(`[PROBLEM-AGENT] Using full OpenAI analysis flow`);
+    console.log(`[PROBLEM-AGENT] Using OpenAI analysis flow with timeout: ${API_TIMEOUT}ms`);
+    
+    // Create a simplified prompt for faster processing
+    const simplifiedPrompt = `
+    You are the Problem Specialist Agent. Analyze this business idea:
+    
+    ${businessIdea}
+    
+    Return a JSON object with these fields:
+    - improved_problem_statement: A clearer statement of the problem (max 500 chars)
+    - severity_index: Number 1-10 indicating problem severity
+    - problem_framing: Either "global" or "niche"
+    - root_causes: Array of 2-3 root causes
+    - score: Overall score 1-100
+    - reasoning: Brief explanation of your score`;
+    
     const response = await callOpenAIWithRetry(() => 
       openai.chat.completions.create({
-        model: "gpt-3.5-turbo", // Use faster model for Vercel deployment
+        model: "gpt-3.5-turbo", // Use faster model
         messages: [
           {
             role: "system",
-            content: "You are the Problem Specialist Agent (The Diagnostician). Your role is to extract, clarify and strengthen the actual problem statement from the business idea."
+            content: "You are the Problem Specialist Agent. Extract and clarify the problem from business ideas."
           },
           {
             role: "user",
-            content: prompt
+            content: simplifiedPrompt // Use simplified prompt for faster processing
           }
         ],
-        temperature: 0.5, // Lower temperature for more consistent results
+        temperature: 0.3, // Lower temperature for more consistent results
+        max_tokens: 500, // Limit token count for faster response
         response_format: { type: "json_object" }
       })
     );
@@ -395,24 +411,42 @@ async function runMarketAgentAnalysis(context: Record<string, any>): Promise<Mar
   
   // Extract the business idea for logging
   const businessIdea = context.user_input || "";
-  console.log(`Market agent analyzing business context (enhanced problem: ${context.enhanced_problem_statement?.substring(0, 50) || "None"}...)`);
+  console.log(`[MARKET-AGENT] Analyzing business (length: ${businessIdea.length}): "${businessIdea.substring(0, 50)}..."`);
+  console.log(`[MARKET-AGENT] Running market analysis...`);
   
   try {
+    // Create a simplified prompt for faster processing
+    const simplifiedPrompt = `
+    Business Idea: ${businessIdea}
+    
+    Enhanced Problem: ${context.problem_analysis?.improved_problem_statement || businessIdea}
+    
+    Provide a market analysis in JSON format with:
+    - tam: Total Addressable Market in USD (reasonable number)
+    - sam: Serviceable Addressable Market (reasonable portion of TAM)
+    - som: Serviceable Obtainable Market (realistic portion of SAM)
+    - growth_rate: Annual market growth rate as a string (e.g., "10-15% annually")
+    - market_demand: Brief description of real market demand
+    - why_now: Brief explanation of market timing
+    - score: Your overall score 1-100
+    - reasoning: Brief explanation of your score`;
+    
     // Use our retry helper for more reliable API calls
     const response = await callOpenAIWithRetry(() => 
       openai.chat.completions.create({
-        model: "gpt-3.5-turbo", // Use faster model for Vercel deployment
+        model: "gpt-3.5-turbo",
         messages: [
           {
             role: "system",
-            content: "You are the Market Specialist Agent (The Opportunity Validator). Your role is to analyze market size, growth potential, and validate the market opportunity."
+            content: "You are the Market Specialist Agent. Analyze market size and demand for business ideas."
           },
           {
             role: "user",
-            content: prompt
+            content: simplifiedPrompt
           }
         ],
-        temperature: 0.5,
+        temperature: 0.3,
+        max_tokens: 500,
         response_format: { type: "json_object" }
       })
     );
@@ -455,12 +489,12 @@ async function runMarketAgentAnalysis(context: Record<string, any>): Promise<Mar
       return analysis;
     } catch (parseError: unknown) {
       const errorMessage = parseError instanceof Error ? parseError.message : "Unknown parsing error";
-      console.error("Market Agent returned invalid JSON:", errorMessage);
-      console.error("Response content:", content.substring(0, 500));
+      console.error("[MARKET-AGENT] Returned invalid JSON:", errorMessage);
+      console.error("[MARKET-AGENT] Response content:", content.substring(0, 500));
       throw new Error(`Market Agent returned invalid JSON: ${errorMessage}`);
     }
   } catch (error) {
-    console.error("Market Agent analysis failed after retries:", error instanceof Error ? error.message : String(error));
+    console.error("[MARKET-AGENT] Analysis failed after retries:", error instanceof Error ? error.message : String(error));
     
     // Create a fallback analysis
     return {

@@ -6,6 +6,7 @@ import { saveValidationForm } from "@/lib/supabase/validation-service"
 import { createVCValidation, updateVCValidationStatus, addAgentAnalysis, setVCReport } from "@/lib/supabase/vc-validation-service"
 import { runVCValidation } from "@/lib/ai/vc-validation/vc-analyzer"
 import { VCAgentType } from "@/lib/supabase/types"
+import { unstable_noStore as noStore } from "next/cache"
 
 // Submit VC validation form data and start the multi-agent validation process
 export async function submitVCValidationForm(formData: {
@@ -13,6 +14,9 @@ export async function submitVCValidationForm(formData: {
   websiteUrl?: string;
   additionalContext?: Record<string, any>;
 }) {
+  // Disable caching for this function
+  noStore();
+  
   try {
     console.log("Processing VC validation submission", formData);
     
@@ -51,32 +55,38 @@ export async function submitVCValidationForm(formData: {
     await updateVCValidationStatus(validationId, "in_progress");
     await updateVCValidationStatus(validationId, "processing");
     
-    // Detect Vercel environment
-    const isVercel = process.env.VERCEL === '1';
+    // Create a simplified problem analysis immediately
+    // This shows progress to the user while the full analysis continues in the background
+    const quickProblemAnalysis = {
+      improved_problem_statement: formData.businessIdea.substring(0, 500),
+      severity_index: 5,
+      problem_framing: 'niche',
+      root_causes: ["Analysis initiated and running..."],
+      score: 70,
+      reasoning: "Initial assessment, full analysis in progress"
+    };
     
-    // Different handling for Vercel vs local environment
-    if (isVercel) {
-      // For Vercel: We'll now use the same approach as non-Vercel environments
-      // Start the validation process asynchronously
-      console.log("Starting async VC validation in Vercel environment for ID:", validationId);
-      
-      // Start the actual background process without awaiting or Promise chaining
+    // Save this quick analysis to show progress
+    await addAgentAnalysis(
+      validationId,
+      'problem',
+      { businessIdea: formData.businessIdea, ...formData.additionalContext },
+      quickProblemAnalysis,
+      70,
+      "Initial analysis while full processing completes",
+      {}
+    );
+    
+    // Start the FULL analysis process in the background with Promise 
+    // (using Promise.resolve() for consistent behavior)
+    Promise.resolve().then(() => {
       processVCValidationAsync(validationId, formData.businessIdea, formData.additionalContext || {})
         .catch(error => {
-          console.error("Background processing error (Vercel):", error);
+          console.error("Background processing error:", error);
         });
-        
-      console.log("Vercel approach: Started validation process directly");
-    } else {
-      // In local/non-Vercel: Use Promise for clearer handling
-      console.log("Starting async VC validation in non-Vercel environment for ID:", validationId);
-      Promise.resolve().then(() => {
-        processVCValidationAsync(validationId, formData.businessIdea, formData.additionalContext || {})
-          .catch(error => {
-            console.error("Background processing error (non-Vercel):", error);
-          });
-      });
-    }
+    });
+    
+    console.log("Started background validation process for ID:", validationId);
 
     // Revalidate the paths (both potential URLs)
     revalidatePath(`/validate/vc-report/${validationId}`);
