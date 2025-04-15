@@ -46,7 +46,7 @@ import {
 
 // Define constants for environment detection and timeouts
 const IS_VERCEL = process.env.VERCEL === '1';
-const API_TIMEOUT = IS_VERCEL ? 30000 : 60000; // 30 seconds for Vercel, 60 for other environments
+const API_TIMEOUT = IS_VERCEL ? 20000 : 60000; // 20 seconds for Vercel, 60 for other environments
 
 // Enhanced OpenAI client with timeouts and retries for reliability in serverless environments
 const openai = new OpenAI({
@@ -89,7 +89,8 @@ async function callOpenAIWithRetry<T>(apiCall: () => Promise<T>, maxRetries = 2)
 export async function runVCValidation(
   businessIdea: string,
   additionalContext: Record<string, any> = {},
-  onAgentComplete?: (agentType: VCAgentType, analysis: any) => Promise<void>
+  onAgentComplete?: (agentType: VCAgentType, analysis: any) => Promise<void>,
+  agentToProcess?: VCAgentType // New parameter to specify which agent to process
 ): Promise<{
   success: boolean;
   agent_analyses: AgentAnalyses;
@@ -97,8 +98,9 @@ export async function runVCValidation(
   error?: string;
   error_details?: string;
   failed_at?: string;
+  next_agent?: VCAgentType; // New field to indicate the next agent to process
 }> {
-  console.log(`[VC-VALIDATION] Starting VC validation process`);
+  console.log(`[VC-VALIDATION] Starting VC validation process ${agentToProcess ? `for agent: ${agentToProcess}` : ''}`);
   console.log(`[VC-VALIDATION] Environment: ${IS_VERCEL ? 'Vercel serverless' : 'Non-Vercel'}`);
   console.log(`[VC-VALIDATION] API Timeout: ${API_TIMEOUT}ms, Max Retries: ${IS_VERCEL ? '2' : '3'}`);
   
@@ -107,7 +109,7 @@ export async function runVCValidation(
     user_input: businessIdea,
     ...additionalContext
   };
-  
+    
   // Initialize the analyses object with null values
   const agentAnalyses: AgentAnalyses = {
     problem: null,
@@ -120,142 +122,125 @@ export async function runVCValidation(
     fundraising: null
   };
 
+  // If we received existing analyses in additionalContext, use those
+  if (additionalContext.existing_analyses) {
+    Object.assign(agentAnalyses, additionalContext.existing_analyses);
+  }
+
   try {
-    // ULTRA-SIMPLIFIED APPROACH: Skip the AI calls entirely in Vercel environment
-    // Instead, provide a deterministic analysis based on the business idea
-    // This is just for debugging whether the issue is with AI calls or other aspects
-    
-    console.log(`[VC-VALIDATION] Using ultra-simplified direct approach to bypass API calls and test flow`);
-    
-    // Generate a static problem analysis
-    const staticProblemAnalysis: ProblemAnalysis = {
-      improved_problem_statement: "QuickBite allows students to pre-order lunch to skip cafeteria lines, saving time and improving the lunch experience for $1 per order.",
-      severity_index: 7,
-      problem_framing: 'niche',
-      root_causes: [
-        "Long lunch lines waste limited student time", 
-        "Traditional cafeteria service creates inefficiency"
-      ],
-      score: 85,
-      reasoning: "School lunch lines represent a daily pain point for students with limited lunch periods."
-    };
-    
-    // Set the problem analysis
-    agentAnalyses.problem = staticProblemAnalysis;
-    console.log(`[PROBLEM-AGENT] Created static analysis for debugging`);
-    
-    // Call the callback if provided
-    if (onAgentComplete) {
-      await onAgentComplete('problem', staticProblemAnalysis);
+    // If no specific agent is requested, process the problem agent as the first step
+    if (!agentToProcess) {
+      agentToProcess = 'problem';
     }
+
+    // Define the agent processing order
+    const agentOrder: VCAgentType[] = [
+      'problem',
+      'market',
+      'competitive',
+      'uvp',
+      'business_model',
+      'validation',
+      'legal',
+      'metrics'
+    ];
+
+    // Get the current agent's index and determine the next agent
+    const currentIndex = agentOrder.indexOf(agentToProcess);
+    const nextAgent = currentIndex < agentOrder.length - 1 ? agentOrder[currentIndex + 1] : null;
     
-    // Add a market analysis
-    const staticMarketAnalysis: MarketAnalysis = {
-      tam: 1500000000, // $1.5B
-      sam: 500000000, // $500M
-      som: 50000000, // $50M
-      growth_rate: "10-15% annually",
-      market_demand: "Strong demand among K-12 students and college campuses",
-      why_now: "Mobile tech adoption in schools and increased focus on student experience",
-      score: 80,
-      reasoning: "School food service represents a large, underserved market with clear pain points."
-    };
+    // Process the requested agent
+    console.log(`[VC-VALIDATION] Processing agent: ${agentToProcess}`);
     
-    // Set the market analysis
-    agentAnalyses.market = staticMarketAnalysis;
-    console.log(`[MARKET-AGENT] Created static analysis for debugging`);
-    
-    // Call the callback if provided
-    if (onAgentComplete) {
-      await onAgentComplete('market', staticMarketAnalysis);
-    }
-    
-    // Add a competitive analysis
-    const staticCompetitiveAnalysis: CompetitiveAnalysis = {
-      competitors: [
-        {
-          name: "School Lunch Apps",
-          description: "Other school lunch ordering apps",
-          strengths: ["Existing relationships with schools"],
-          weaknesses: ["Often complex and hard to use", "Typically higher fees"]
-        },
-        {
-          name: "General Food Delivery",
-          description: "Apps like DoorDash for Schools",
-          strengths: ["Established delivery network"],
-          weaknesses: ["Not optimized for school environment", "Much higher fees"]
+    switch(agentToProcess) {
+      case 'problem':
+        agentAnalyses.problem = await runProblemAgentAnalysis(context);
+        if (onAgentComplete) {
+          await onAgentComplete('problem', agentAnalyses.problem);
         }
-      ],
-      differentiation: "QuickBite is specifically designed for school environments with a simple, low-cost model.",
-      moat_classification: 'defensible',
-      score: 75,
-      reasoning: "The product has good differentiation but would need school partnerships to create barriers to entry."
-    };
-    
-    // Set the competitive analysis
-    agentAnalyses.competitor = staticCompetitiveAnalysis;
-    console.log(`[COMPETITIVE-AGENT] Created static analysis for debugging`);
-    
-    // Call the callback if provided
-    if (onAgentComplete) {
-      await onAgentComplete('competitive', staticCompetitiveAnalysis);
+        break;
+      case 'market':
+        // Add problem analysis to context if available
+        if (agentAnalyses.problem) {
+          context.problem_analysis = agentAnalyses.problem;
+        }
+        agentAnalyses.market = await runMarketAgentAnalysis(context);
+        if (onAgentComplete) {
+          await onAgentComplete('market', agentAnalyses.market);
+        }
+        break;
+      case 'competitive':
+        // Add previous analyses to context if available
+        if (agentAnalyses.problem) {
+          context.problem_analysis = agentAnalyses.problem;
+        }
+        if (agentAnalyses.market) {
+          context.market_analysis = agentAnalyses.market;
+        }
+        agentAnalyses.competitor = await runCompetitiveAgentAnalysis(context);
+        if (onAgentComplete) {
+          await onAgentComplete('competitive', agentAnalyses.competitor);
+        }
+        break;
+      case 'uvp':
+        // Update context with all previous analyses
+        updateContextWithPreviousAnalyses(context, agentAnalyses);
+        const uvpAnalysis = await runUVPAgentAnalysis(context);
+        // Store in the appropriate field for later processing
+        additionalContext.uvp_analysis = uvpAnalysis;
+        if (onAgentComplete) {
+          await onAgentComplete('uvp', uvpAnalysis);
+        }
+        break;
+      case 'business_model':
+        updateContextWithPreviousAnalyses(context, agentAnalyses);
+        const businessModelAnalysis = await runBusinessModelAgentAnalysis(context);
+        additionalContext.business_model_analysis = businessModelAnalysis;
+        if (onAgentComplete) {
+          await onAgentComplete('business_model', businessModelAnalysis);
+        }
+        break;
+      case 'validation':
+        updateContextWithPreviousAnalyses(context, agentAnalyses);
+        const validationAnalysis = await runValidationAgentAnalysis(context);
+        additionalContext.validation_analysis = validationAnalysis;
+        if (onAgentComplete) {
+          await onAgentComplete('validation', validationAnalysis);
+        }
+        break;
+      case 'legal':
+        updateContextWithPreviousAnalyses(context, agentAnalyses);
+        const legalAnalysis = await runLegalAgentAnalysis(context);
+        additionalContext.legal_analysis = legalAnalysis;
+        if (onAgentComplete) {
+          await onAgentComplete('legal', legalAnalysis);
+        }
+        break;
+      case 'metrics':
+        updateContextWithPreviousAnalyses(context, agentAnalyses);
+        const metricsAnalysis = await runMetricsAgentAnalysis(context);
+        additionalContext.metrics_analysis = metricsAnalysis;
+        if (onAgentComplete) {
+          await onAgentComplete('metrics', metricsAnalysis);
+        }
+        break;
+      default:
+        console.log(`[VC-VALIDATION] Unknown agent type: ${agentToProcess}`);
+    }
+
+    // If this is the last agent, generate a VC report
+    let vcReport: VCReport | undefined;
+    if (!nextAgent) {
+      // Generate a basic report if this is the final agent
+      vcReport = generateBasicReport(businessIdea, agentAnalyses, additionalContext);
     }
     
-    // Build a basic report
-    const basicReport: VCReport = {
-      overall_score: 78,
-      business_type: "EdTech / Food Service",
-      weighted_scores: {
-        problem: 0.25,
-        market: 0.20,
-        competitive: 0.15,
-        uvp: 0.15,
-        business_model: 0.15,
-        validation: 0.10,
-        legal: 0,
-        metrics: 0
-      },
-      category_scores: {
-        problem: staticProblemAnalysis.score,
-        market: staticMarketAnalysis.score,
-        competition: staticCompetitiveAnalysis.score
-      },
-      recommendation: "QuickBite addresses a real pain point for students with a simple solution and business model.",
-      strengths: [
-        "Clear value proposition that addresses a daily pain point",
-        "Simple pricing model that's easy to understand",
-        "Low technical barriers to entry",
-        "Potential for rapid school-by-school expansion"
-      ],
-      weaknesses: [
-        "Requires school administration buy-in",
-        "May face resistance from existing cafeteria systems",
-        "Limited revenue per transaction",
-        "Seasonal business tied to school year"
-      ],
-      suggested_actions: [
-        "Pilot with 2-3 schools to validate the concept",
-        "Survey students on willingness to pay $1 fee",
-        "Develop simple onboarding process for cafeteria staff",
-        "Create clear value proposition for school administrators"
-      ],
-      idea_improvements: {
-        original_idea: businessIdea,
-        improved_idea: "QuickBite - A mobile app that lets students pre-order school lunches for a $1 fee, eliminating wait times and improving the lunch experience while helping cafeterias optimize food preparation.",
-        problem_statement: staticProblemAnalysis.improved_problem_statement,
-        market_positioning: "The fastest way for students to get school lunch",
-        uvp: "Skip the lunch line for just $1",
-        business_model: "Simple $1 fee per order with no subscription"
-      },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-    
-    // Return success with analyses and report
+    // Return success with analyses and possibly a report
     return {
       success: true,
       agent_analyses: agentAnalyses,
-      vc_report: basicReport
+      vc_report: vcReport,
+      next_agent: nextAgent as VCAgentType
     };
     
   } catch (error) {
@@ -267,9 +252,143 @@ export async function runVCValidation(
       agent_analyses: agentAnalyses,
       error: error instanceof Error ? error.message : "Unknown error",
       error_details: error instanceof Error ? error.stack : undefined,
-      failed_at: "validation_process"
+      failed_at: `agent_${agentToProcess}`
     };
   }
+}
+
+// Helper function to update context with all previous analyses
+function updateContextWithPreviousAnalyses(context: Record<string, any>, agentAnalyses: AgentAnalyses) {
+  if (agentAnalyses.problem) {
+    context.problem_analysis = agentAnalyses.problem;
+  }
+  if (agentAnalyses.market) {
+    context.market_analysis = agentAnalyses.market;
+  }
+  if (agentAnalyses.competitor) {
+    context.competitive_analysis = agentAnalyses.competitor;
+  }
+  // Add any other analyses from additionalContext
+  if (context.uvp_analysis) {
+    context.uvp_analysis = context.uvp_analysis;
+  }
+  if (context.business_model_analysis) {
+    context.business_model_analysis = context.business_model_analysis;
+  }
+  if (context.validation_analysis) {
+    context.validation_analysis = context.validation_analysis;
+  }
+  if (context.legal_analysis) {
+    context.legal_analysis = context.legal_analysis;
+  }
+}
+
+// Helper function to generate a basic report from all analyses
+function generateBasicReport(
+  businessIdea: string,
+  agentAnalyses: AgentAnalyses,
+  additionalContext: Record<string, any>
+): VCReport {
+  // Extract all analyses including those stored in additionalContext
+  const problem = agentAnalyses.problem;
+  const market = agentAnalyses.market;
+  const competitive = agentAnalyses.competitor;
+  const uvp = additionalContext.uvp_analysis;
+  const businessModel = additionalContext.business_model_analysis;
+  const validation = additionalContext.validation_analysis;
+  const legal = additionalContext.legal_analysis;
+  const metrics = additionalContext.metrics_analysis;
+  
+  // Calculate an average score from all available agent scores
+  const scores: number[] = [];
+  if (problem?.score) scores.push(problem.score);
+  if (market?.score) scores.push(market.score);
+  if (competitive?.score) scores.push(competitive.score);
+  if (uvp?.score) scores.push(uvp.score);
+  if (businessModel?.score) scores.push(businessModel.score);
+  if (validation?.score) scores.push(validation.score);
+  if (legal?.score) scores.push(legal.score);
+  if (metrics?.score) scores.push(metrics.score);
+  
+  const overallScore = scores.length > 0 
+    ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) 
+    : 70;
+  
+  // Extract strengths and weaknesses
+  const strengths: string[] = [];
+  const weaknesses: string[] = [];
+  const suggestedActions: string[] = [];
+  
+  // Add strengths, weaknesses, and actions from each analysis
+  [problem, market, competitive, uvp, businessModel, validation, legal, metrics].forEach(analysis => {
+    if (!analysis) return;
+    
+    // Add strengths if available
+    if (analysis.strengths && Array.isArray(analysis.strengths)) {
+      strengths.push(...analysis.strengths.slice(0, 2));
+    }
+    
+    // Add weaknesses if available
+    if (analysis.weaknesses && Array.isArray(analysis.weaknesses)) {
+      weaknesses.push(...analysis.weaknesses.slice(0, 2));
+    }
+    
+    // Add actions from various field names
+    if (analysis.recommendations && Array.isArray(analysis.recommendations)) {
+      suggestedActions.push(...analysis.recommendations.slice(0, 2));
+    } else if (analysis.suggested_actions && Array.isArray(analysis.suggested_actions)) {
+      suggestedActions.push(...analysis.suggested_actions.slice(0, 2));
+    }
+  });
+  
+  // Determine business type
+  let businessType = "Startup";
+  if (problem?.problem_framing === 'global') {
+    businessType = "Social Impact";
+  } else if (businessIdea.toLowerCase().includes("saas") || businessIdea.toLowerCase().includes("software")) {
+    businessType = "B2B SaaS";
+  } else if (businessIdea.toLowerCase().includes("app") || businessIdea.toLowerCase().includes("mobile")) {
+    businessType = "Consumer App";
+  }
+  
+  return {
+    overall_score: overallScore,
+    business_type: businessType,
+    weighted_scores: {
+      problem: 0.15,
+      market: 0.15,
+      competitive: 0.15,
+      uvp: 0.15,
+      business_model: 0.15,
+      validation: 0.1,
+      legal: 0.05,
+      metrics: 0.1
+    },
+    category_scores: {
+      problem: problem?.score || 0,
+      market: market?.score || 0,
+      competition: competitive?.score || 0,
+      value_proposition: uvp?.score || 0,
+      business: businessModel?.score || 0,
+      validation: validation?.score || 0,
+      legal: legal?.score || 0,
+      metrics: metrics?.score || 0
+    },
+    recommendation: "Based on our analysis, this business idea shows potential but requires further validation.",
+    strengths: strengths.slice(0, 5),
+    weaknesses: weaknesses.slice(0, 5),
+    suggested_actions: suggestedActions.slice(0, 5),
+    idea_improvements: {
+      original_idea: businessIdea,
+      improved_idea: problem?.improved_problem_statement || businessIdea,
+      problem_statement: problem?.improved_problem_statement || "",
+      market_positioning: market?.market_demand || "",
+      uvp: uvp?.one_liner || "",
+      business_model: businessModel?.revenue_model || ""
+    },
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
 }
 
 // Individual agent functions

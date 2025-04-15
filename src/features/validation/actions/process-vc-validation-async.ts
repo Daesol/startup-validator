@@ -57,202 +57,39 @@ async function logToDatabase(
 }
 
 /**
- * Runs the VC validation process asynchronously
- * This function is intended to be run in the background
- * @param validationId The ID of the validation record to process
- * @param businessIdea The business idea to validate
- * @param additionalContext Additional context for the validation
+ * Get the existing analyses from the database to pass to subsequent agent processing
+ * @param validationId The validation ID
  */
-export async function processVCValidationAsync(
-  validationId: string,
-  businessIdea: string,
-  additionalContext: Record<string, any> = {}
-): Promise<void> {
-  console.log(`[DEBUG] Starting background VC validation for ID ${validationId}`);
-  await logToDatabase(validationId, "Background validation process started", {
-    environment: process.env.VERCEL === '1' ? 'Vercel' : 'Local',
-    businessIdeaLength: businessIdea.length,
-    timestamp: new Date().toISOString()
-  });
-  
-  // Add a timeout safety net for the entire process
-  const processTimeoutMs = 180000; // 3 minutes max for full process
-  const processTimeout = setTimeout(() => {
-    console.log(`[DEBUG] Process timeout triggered after ${processTimeoutMs}ms`);
-    logToDatabase(validationId, "Process timeout triggered - 3 minute limit reached", {
-      error: "Process timeout",
-      timestamp: new Date().toISOString()
-    });
-  }, processTimeoutMs);
-  
-  // Add checkpoints at each major step
-  let lastCheckpoint = "start";
-  
-  // Checkpoint logging helper
-  const checkpoint = async (name: string, details?: Record<string, any>) => {
-    lastCheckpoint = name;
-    console.log(`[DEBUG-CHECKPOINT] ${name}`);
-    await logToDatabase(validationId, `CHECKPOINT: ${name}`, {
-      ...details,
-      timestamp: new Date().toISOString()
-    });
-  };
-  
+async function getExistingAnalyses(validationId: string): Promise<Record<string, any>> {
   try {
-    await checkpoint("before-validation-call");
-    
-    // Run the validation process - now optimized for reliability with just Problem Analysis
-    await logToDatabase(validationId, "Calling runVCValidation with enhanced timeout", {
-      apiTimeout: process.env.VERCEL === '1' ? '30s' : '60s'
-    });
-    
-    // Start the validation process with a long timeout
-    const validationTimeout = setTimeout(() => {
-      console.log(`[DEBUG] Validation API timeout check after 45s - lastCheckpoint: ${lastCheckpoint}`);
-      logToDatabase(validationId, "Validation API timeout - possible hung request", {
-        error: "API timeout",
-        lastCheckpoint,
-        timestamp: new Date().toISOString()
-      });
-    }, 45000); // 45 second check for validation call
-    
-    console.log(`[DEBUG] About to call runVCValidation`);
-    const validationResult = await runVCValidation(
-      businessIdea,
-      additionalContext
-    );
-    console.log(`[DEBUG] runVCValidation returned, success: ${validationResult.success}`);
-    
-    await checkpoint("after-validation-call", { 
-      success: validationResult.success,
-      agentCount: Object.keys(validationResult.agent_analyses || {}).filter(k => validationResult.agent_analyses[k] !== null).length,
-      hasError: !!validationResult.error
-    });
-    
-    // Clear the validation timeout since we got a response
-    clearTimeout(validationTimeout);
-    
-    console.log("VC validation result:", JSON.stringify(validationResult.success));
-    await logToDatabase(validationId, "runVCValidation returned", { 
-      success: validationResult.success,
-      hasError: !!validationResult.error,
-      errorMessage: validationResult.error,
-      errorDetails: validationResult.error_details,
-      failedAt: validationResult.failed_at
-    });
-    
-    if (!validationResult.success) {
-      console.error("VC validation failed:", validationResult.error);
-      await logToDatabase(validationId, "Validation process failed", { error: validationResult.error });
-      await updateVCValidationStatus(validationId, "failed");
-      clearTimeout(processTimeout);
-      return;
-    }
-    
-    await checkpoint("before-processing-analyses");
-    
-    // Process and update the individual agent analyses
-    const { agent_analyses: agentAnalyses, vc_report: vcReport } = validationResult;
-    await logToDatabase(validationId, "Processing agent analyses", { 
-      agentCount: Object.keys(agentAnalyses || {}).length,
-      hasReport: !!vcReport
-    });
-    
-    // Store each agent's analysis separately
-    for (const [agentType, analysis] of Object.entries(agentAnalyses || {})) {
-      try {
-        if (!analysis) continue;
-        
-        await checkpoint(`processing-${agentType}-analysis`);
-        
-        console.log(`Updating ${agentType} analysis for validation ${validationId}`);
-        await logToDatabase(validationId, `Processing ${agentType} agent result`);
-        
-        // Use type assertion to access properties safely
-        const typedAnalysis = analysis as any;
-        
-        await addAgentAnalysis(
-          validationId,
-          agentType as VCAgentType,
-          { businessIdea, ...additionalContext },
-          typedAnalysis,
-          typedAnalysis.score || 0,
-          typedAnalysis.reasoning || "Analysis completed",
-          typedAnalysis.metadata || {}
-        );
-        
-        await logToDatabase(validationId, `Successfully stored ${agentType} agent result`);
-      } catch (error) {
-        console.error(`Error updating ${agentType} analysis:`, error);
-        await logToDatabase(validationId, `Error processing ${agentType} agent`, { 
-          error: error instanceof Error ? error.message : String(error) 
-        });
-        // Continue processing other analyses even if one fails
-      }
-    }
-    
-    await checkpoint("before-updating-report");
-    
-    // Update the VC validation report
-    try {
-      console.log("Updating VC validation report for ID:", validationId);
-      await logToDatabase(validationId, "Updating final VC report");
+    // Get all agent analyses for this validation
+    const { data, error } = await supabase
+      .from("vc_agent_analyses")
+      .select("*")
+      .eq("vc_validation_id", validationId);
       
-      if (vcReport) {
-        await updateVCValidationReport(validationId, vcReport);
-        await logToDatabase(validationId, "Successfully updated VC report");
-      } else {
-        // Generate a fallback report if no VC report was provided
-        console.log("[ASYNC] No VC report in result, using fallback report generation");
-        await logToDatabase(validationId, "No VC report in result, generating fallback");
-        
-        const fallbackReport = generateFallbackReport(businessIdea, validationResult.agent_analyses);
-        await setVCReport(validationId, fallbackReport, 65);
-        await updateVCValidationStatus(validationId, "completed_with_errors");
-        await logToDatabase(validationId, "Saved fallback report", { status: "completed_with_errors" });
-        
-        console.log("[ASYNC] Saved fallback report and updated status to 'completed_with_errors'");
-        clearTimeout(processTimeout);
-        return;
-      }
-    } catch (error) {
-      console.error("Error updating VC report:", error);
-      await logToDatabase(validationId, "Error updating VC report", { 
-        error: error instanceof Error ? error.message : String(error) 
-      });
+    if (error) {
+      console.error("Error fetching existing analyses:", error);
+      return {};
     }
     
-    await checkpoint("finishing-process");
-    
-    // Mark the validation as complete
-    await updateVCValidationStatus(validationId, "completed");
-    await logToDatabase(validationId, "Validation process completed successfully", { status: "completed" });
-    console.log(`Completed VC validation for ID ${validationId}`);
-    
-    // Clear the overall process timeout
-    clearTimeout(processTimeout);
-    
-  } catch (error) {
-    console.error("Unhandled error in VC validation process:", error);
-    await logToDatabase(validationId, "Unhandled error in validation process", { 
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      lastCheckpoint
-    });
-    
-    try {
-      // Try to update the status to failed
-      await handleValidationError(validationId, businessIdea, error);
-      
-      // Clear the process timeout even on error
-      clearTimeout(processTimeout);
-    } catch (statusUpdateError) {
-      console.error("Failed to update validation status:", statusUpdateError);
-      await logToDatabase(validationId, "Failed to handle validation error", { 
-        error: statusUpdateError instanceof Error ? statusUpdateError.message : String(statusUpdateError) 
-      });
+    // Convert to agent type -> analysis mapping
+    const analyses: Record<string, any> = {};
+    for (const item of data || []) {
+      analyses[item.agent_type] = item.analysis;
     }
+    
+    return analyses;
+  } catch (e) {
+    console.error("Failed to get existing analyses:", e);
+    return {};
   }
+}
+
+// Checkpoint logging helper
+async function checkpoint(name: string, details?: Record<string, any>): Promise<Record<string, any> | undefined> {
+  console.log(`[DEBUG-CHECKPOINT] ${name}`);
+  return details;
 }
 
 /**
@@ -436,4 +273,242 @@ function generateFallbackReport(businessIdea: string, agentAnalyses: Partial<Rec
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
-} 
+}
+
+/**
+ * Runs the VC validation process asynchronously
+ * This function is intended to be run in the background
+ * @param validationId The ID of the validation record to process
+ * @param businessIdea The business idea to validate
+ * @param additionalContext Additional context for the validation
+ */
+export async function processVCValidationAsync(
+  validationId: string,
+  businessIdea: string,
+  additionalContext: Record<string, any> = {}
+): Promise<void> {
+  console.log(`[DEBUG] Starting background VC validation for ID ${validationId}`);
+  await logToDatabase(validationId, "Background validation process started", {
+    environment: process.env.VERCEL === '1' ? 'Vercel' : 'Local',
+    businessIdeaLength: businessIdea.length,
+    timestamp: new Date().toISOString()
+  });
+  
+  // Instead of a single timeout for the whole process, we'll handle each agent separately
+  try {
+    await checkpoint("starting-chunked-processing");
+    
+    // Start with the problem agent
+    await processNextAgent(validationId, "problem", businessIdea, additionalContext);
+    
+  } catch (error) {
+    console.error("Error starting chunked validation process:", error);
+    await logToDatabase(validationId, "Error starting chunked validation process", { 
+      error: error instanceof Error ? error.message : String(error) 
+    });
+    
+    try {
+      // Try to update the status to failed
+      await handleValidationError(validationId, businessIdea, error);
+    } catch (statusUpdateError) {
+      console.error("Failed to update validation status:", statusUpdateError);
+    }
+  }
+}
+
+/**
+ * Process a single agent and then queue the next one if needed
+ * This function is called recursively for each agent
+ */
+async function processNextAgent(
+  validationId: string,
+  agentType: VCAgentType | undefined,
+  businessIdea: string,
+  additionalContext: Record<string, any> = {}
+): Promise<void> {
+  try {
+    if (!agentType) {
+      console.log(`[CHUNKED] No agent specified, validation complete for ${validationId}`);
+      await updateVCValidationStatus(validationId, "completed");
+      await logToDatabase(validationId, "Validation process completed successfully", { status: "completed" });
+      return;
+    }
+    
+    console.log(`[CHUNKED] Processing agent ${agentType} for validation ${validationId}`);
+    await checkpoint(`processing-agent-${agentType}`);
+    
+    // Get existing analyses to provide context for this agent
+    const existingAnalyses = await getExistingAnalyses(validationId);
+    
+    // Set a timeout for this specific agent
+    const agentTimeoutMs = 45000; // 45 seconds max for a single agent
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`Agent ${agentType} timed out after ${agentTimeoutMs}ms`)), agentTimeoutMs);
+    });
+    
+    // Process this specific agent
+    const enrichedContext: Record<string, any> = {
+      ...additionalContext,
+      existing_analyses: existingAnalyses
+    };
+    
+    // Race the agent processing against the timeout
+    const agentResult = await Promise.race([
+      runVCValidation(businessIdea, enrichedContext, undefined, agentType),
+      timeoutPromise
+    ]);
+    
+    await checkpoint(`completed-agent-${agentType}`);
+    
+    // Store this agent's analysis
+    if (agentResult.success) {
+      // Get the specific analysis for this agent type
+      let analysisData: any = null;
+      
+      // Extract the analysis based on the agent type
+      switch (agentType) {
+        case 'problem':
+          analysisData = agentResult.agent_analyses.problem;
+          break;
+        case 'market':
+          analysisData = agentResult.agent_analyses.market;
+          break;
+        case 'competitive':
+          analysisData = agentResult.agent_analyses.competitor;
+          break;
+        default:
+          // For other types, check additionalContext where they are stored
+          const contextKey = `${agentType}_analysis`;
+          analysisData = enrichedContext[contextKey];
+      }
+      
+      if (analysisData) {
+        console.log(`Storing ${agentType} analysis for validation ${validationId}`);
+        await logToDatabase(validationId, `Storing ${agentType} analysis`);
+        
+        await addAgentAnalysis(
+          validationId,
+          agentType,
+          { businessIdea, ...additionalContext },
+          analysisData,
+          analysisData.score || 0,
+          analysisData.reasoning || "Analysis completed",
+          {}
+        );
+        
+        await logToDatabase(validationId, `Successfully stored ${agentType} agent result`);
+      } else {
+        console.warn(`No analysis data for agent ${agentType}`);
+        await logToDatabase(validationId, `No analysis data for agent ${agentType}`);
+      }
+      
+      // If this was the final agent and we have a report, save it
+      if (agentResult.vc_report && !agentResult.next_agent) {
+        await updateVCValidationReport(validationId, agentResult.vc_report);
+        await logToDatabase(validationId, "Final report generated and saved");
+        await updateVCValidationStatus(validationId, "completed");
+        return;
+      }
+      
+      // Queue the next agent processing
+      if (agentResult.next_agent) {
+        console.log(`[CHUNKED] Queueing next agent: ${agentResult.next_agent}`);
+        await logToDatabase(validationId, `Queueing next agent: ${agentResult.next_agent}`);
+        
+        // Use setTimeout to prevent stack overflow from recursive calls
+        setTimeout(() => {
+          processNextAgent(validationId, agentResult.next_agent, businessIdea, additionalContext)
+            .catch(error => {
+              console.error(`[CHUNKED] Error processing next agent ${agentResult.next_agent}:`, error);
+              logToDatabase(validationId, `Error processing next agent ${agentResult.next_agent}`, {
+                error: error instanceof Error ? error.message : String(error)
+              });
+              
+              // Try to continue with the next agent despite this error
+              const agentOrder: VCAgentType[] = [
+                'problem', 'market', 'competitive', 'uvp', 
+                'business_model', 'validation', 'legal', 'metrics'
+              ];
+              
+              const currentIndex = agentOrder.indexOf(agentResult.next_agent as VCAgentType);
+              if (currentIndex < agentOrder.length - 1) {
+                const skipToAgent = agentOrder[currentIndex + 1];
+                console.log(`[CHUNKED] Skipping to agent ${skipToAgent} after error`);
+                processNextAgent(validationId, skipToAgent, businessIdea, additionalContext);
+              }
+            });
+        }, 1000);
+      } else {
+        // No next agent but we should have a report by now
+        if (agentResult.vc_report) {
+          await updateVCValidationReport(validationId, agentResult.vc_report);
+          await updateVCValidationStatus(validationId, "completed");
+          await logToDatabase(validationId, "All agents processed, validation complete");
+        } else {
+          // Generate a fallback report if somehow we're at the end with no report
+          await logToDatabase(validationId, "No report at end of processing, generating fallback");
+          const fallbackReport = generateFallbackReport(businessIdea, existingAnalyses);
+          await setVCReport(validationId, fallbackReport, 65);
+          await updateVCValidationStatus(validationId, "completed_with_errors");
+        }
+      }
+    } else {
+      // Agent processing failed
+      console.error(`[CHUNKED] Error processing agent ${agentType}:`, agentResult.error);
+      await logToDatabase(validationId, `Error processing agent ${agentType}`, {
+        error: agentResult.error,
+        errorDetails: agentResult.error_details
+      });
+      
+      // Try to continue with the next agent despite this error
+      const agentOrder: VCAgentType[] = [
+        'problem', 'market', 'competitive', 'uvp', 
+        'business_model', 'validation', 'legal', 'metrics'
+      ];
+      
+      const currentIndex = agentOrder.indexOf(agentType as VCAgentType);
+      if (currentIndex < agentOrder.length - 1) {
+        const nextAgent = agentOrder[currentIndex + 1];
+        console.log(`[CHUNKED] Skipping to next agent ${nextAgent} after error`);
+        await logToDatabase(validationId, `Skipping to next agent ${nextAgent} after error`);
+        
+        setTimeout(() => {
+          processNextAgent(validationId, nextAgent, businessIdea, additionalContext);
+        }, 1000);
+      } else {
+        // We've reached the end but with errors, generate a fallback report
+        await logToDatabase(validationId, "Reached end of agent chain with errors, generating fallback report");
+        const fallbackReport = generateFallbackReport(businessIdea, existingAnalyses);
+        await setVCReport(validationId, fallbackReport, 65);
+        await updateVCValidationStatus(validationId, "completed_with_errors");
+      }
+    }
+  } catch (error) {
+    console.error(`[CHUNKED] Unhandled error processing agent ${agentType}:`, error);
+    await logToDatabase(validationId, `Unhandled error processing agent ${agentType}`, {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    
+    // Try to continue with next agent despite this error
+    const agentOrder: VCAgentType[] = [
+      'problem', 'market', 'competitive', 'uvp', 
+      'business_model', 'validation', 'legal', 'metrics'
+    ];
+    
+    const currentIndex = agentOrder.indexOf(agentType as VCAgentType);
+    if (currentIndex < agentOrder.length - 1) {
+      const nextAgent = agentOrder[currentIndex + 1];
+      console.log(`[CHUNKED] Skipping to next agent ${nextAgent} after unhandled error`);
+      
+      setTimeout(() => {
+        processNextAgent(validationId, nextAgent, businessIdea, additionalContext);
+      }, 1000);
+    } else {
+      // Generate a fallback report if we hit an error on the last agent
+      const fallbackReport = generateFallbackReport(businessIdea, await getExistingAnalyses(validationId));
+      await setVCReport(validationId, fallbackReport, 60);
+      await updateVCValidationStatus(validationId, "completed_with_errors");
+    }
+  }
+}
