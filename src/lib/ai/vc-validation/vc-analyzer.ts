@@ -86,10 +86,27 @@ async function callOpenAIWithRetry<T>(apiCall: () => Promise<T>, maxRetries = 2)
 }
 
 // Main validation function that coordinates the multi-agent process
-export async function runVCValidation(context: Record<string, any>): Promise<AgentAnalyses> {
+export async function runVCValidation(
+  businessIdea: string,
+  additionalContext: Record<string, any> = {},
+  onAgentComplete?: (agentType: VCAgentType, analysis: any) => Promise<void>
+): Promise<{
+  success: boolean;
+  agent_analyses: AgentAnalyses;
+  vc_report?: VCReport;
+  error?: string;
+  error_details?: string;
+  failed_at?: string;
+}> {
   console.log(`[VC-VALIDATION] Starting VC validation process`);
   console.log(`[VC-VALIDATION] Environment: ${IS_VERCEL ? 'Vercel serverless' : 'Non-Vercel'}`);
   console.log(`[VC-VALIDATION] API Timeout: ${API_TIMEOUT}ms, Max Retries: ${IS_VERCEL ? '1' : '3'}`);
+  
+  // Combine business idea with additional context
+  const context: Record<string, any> = {
+    user_input: businessIdea,
+    ...additionalContext
+  };
   
   // Initialize the analyses object with null values
   const agentAnalyses: AgentAnalyses = {
@@ -110,12 +127,20 @@ export async function runVCValidation(context: Record<string, any>): Promise<Age
     agentAnalyses.problem = await runProblemAgentAnalysis(context);
     console.log(`[VC-VALIDATION] Completed Problem Agent analysis`);
     
+    // Call the onAgentComplete callback if provided
+    if (onAgentComplete) {
+      await onAgentComplete('problem', agentAnalyses.problem);
+    }
+    
     // In Vercel environment, we've already returned a lightweight Problem analysis
     // We will let the other processes run in the background without waiting
     if (IS_VERCEL) {
       console.log(`[VC-VALIDATION] In Vercel environment - returning lightweight result`);
       // Return early with just the problem analysis
-      return agentAnalyses;
+      return {
+        success: true,
+        agent_analyses: agentAnalyses
+      };
     }
     
     // For non-Vercel environments, we proceed with all analyses in sequence
@@ -131,6 +156,7 @@ export async function runVCValidation(context: Record<string, any>): Promise<Age
       console.log(`[VC-VALIDATION] Starting Team Agent analysis`);
       agentAnalyses.team = await runTeamAgentAnalysis(context);
       console.log(`[VC-VALIDATION] Completed Team Agent analysis`);
+      if (onAgentComplete) await onAgentComplete('team', agentAnalyses.team);
     } catch (error) {
       console.error(`[VC-VALIDATION] Team Agent analysis failed:`, error instanceof Error ? error.message : String(error));
     }
@@ -140,6 +166,7 @@ export async function runVCValidation(context: Record<string, any>): Promise<Age
       console.log(`[VC-VALIDATION] Starting Market Agent analysis`);
       agentAnalyses.market = await runMarketAgentAnalysis(context);
       console.log(`[VC-VALIDATION] Completed Market Agent analysis`);
+      if (onAgentComplete) await onAgentComplete('market', agentAnalyses.market);
     } catch (error) {
       console.error(`[VC-VALIDATION] Market Agent analysis failed:`, error instanceof Error ? error.message : String(error));
     }
@@ -149,6 +176,7 @@ export async function runVCValidation(context: Record<string, any>): Promise<Age
       console.log(`[VC-VALIDATION] Starting Solution Agent analysis`);
       agentAnalyses.solution = await runSolutionAgentAnalysis(context);
       console.log(`[VC-VALIDATION] Completed Solution Agent analysis`);
+      if (onAgentComplete) await onAgentComplete('business_model', agentAnalyses.solution);
     } catch (error) {
       console.error(`[VC-VALIDATION] Solution Agent analysis failed:`, error instanceof Error ? error.message : String(error));
     }
@@ -158,6 +186,7 @@ export async function runVCValidation(context: Record<string, any>): Promise<Age
       console.log(`[VC-VALIDATION] Starting Business Agent analysis`);
       agentAnalyses.business = await runBusinessAgentAnalysis(context);
       console.log(`[VC-VALIDATION] Completed Business Agent analysis`);
+      if (onAgentComplete) await onAgentComplete('market_fit', agentAnalyses.business);
     } catch (error) {
       console.error(`[VC-VALIDATION] Business Agent analysis failed:`, error instanceof Error ? error.message : String(error));
     }
@@ -167,6 +196,7 @@ export async function runVCValidation(context: Record<string, any>): Promise<Age
       console.log(`[VC-VALIDATION] Starting Competitor Agent analysis`);
       agentAnalyses.competitor = await runCompetitorAgentAnalysis(context);
       console.log(`[VC-VALIDATION] Completed Competitor Agent analysis`);
+      if (onAgentComplete) await onAgentComplete('competitive', agentAnalyses.competitor);
     } catch (error) {
       console.error(`[VC-VALIDATION] Competitor Agent analysis failed:`, error instanceof Error ? error.message : String(error));
     }
@@ -176,6 +206,7 @@ export async function runVCValidation(context: Record<string, any>): Promise<Age
       console.log(`[VC-VALIDATION] Starting Timing Agent analysis`);
       agentAnalyses.timing = await runTimingAgentAnalysis(context);
       console.log(`[VC-VALIDATION] Completed Timing Agent analysis`);
+      if (onAgentComplete) await onAgentComplete('traction', agentAnalyses.timing);
     } catch (error) {
       console.error(`[VC-VALIDATION] Timing Agent analysis failed:`, error instanceof Error ? error.message : String(error));
     }
@@ -185,12 +216,40 @@ export async function runVCValidation(context: Record<string, any>): Promise<Age
       console.log(`[VC-VALIDATION] Starting Fundraising Agent analysis`);
       agentAnalyses.fundraising = await runFundraisingAgentAnalysis(context);
       console.log(`[VC-VALIDATION] Completed Fundraising Agent analysis`);
+      if (onAgentComplete) await onAgentComplete('investor_readiness', agentAnalyses.fundraising);
     } catch (error) {
       console.error(`[VC-VALIDATION] Fundraising Agent analysis failed:`, error instanceof Error ? error.message : String(error));
     }
     
     console.log(`[VC-VALIDATION] Full VC validation process completed successfully`);
-    return agentAnalyses;
+    
+    // Create a final VC report
+    // Note: In a real implementation, you would generate a comprehensive VC report here
+    // For now, we'll return a simple success response
+    return {
+      success: true,
+      agent_analyses: agentAnalyses,
+      vc_report: {
+        overall_score: 75,
+        business_type: "Startup",
+        weighted_scores: {},
+        category_scores: {},
+        recommendation: "This is a placeholder VC report",
+        strengths: [],
+        weaknesses: [],
+        suggested_actions: [],
+        idea_improvements: {
+          original_idea: businessIdea,
+          improved_idea: agentAnalyses.problem?.improved_problem_statement || businessIdea,
+          problem_statement: "",
+          market_positioning: "",
+          uvp: "",
+          business_model: ""
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    };
   } catch (error) {
     console.error(`[VC-VALIDATION] VC validation process encountered an error:`, error instanceof Error ? error.message : String(error));
     console.error(`[VC-VALIDATION] Returning partial results:`, Object.entries(agentAnalyses)
@@ -198,8 +257,14 @@ export async function runVCValidation(context: Record<string, any>): Promise<Age
       .map(([k]) => k)
       .join(', '));
     
-    // Return whatever analyses we have so far
-    return agentAnalyses;
+    // Return error details and whatever analyses we have so far
+    return {
+      success: false,
+      agent_analyses: agentAnalyses,
+      error: error instanceof Error ? error.message : "Unknown error",
+      error_details: error instanceof Error ? error.stack : undefined,
+      failed_at: "error_during_validation"
+    };
   }
 }
 
@@ -216,6 +281,7 @@ async function runProblemAgentAnalysis(context: Record<string, any>): Promise<Pr
   // This is to ensure we stay within serverless function limits
   if (IS_VERCEL) {
     console.log(`[PROBLEM-AGENT] Using Vercel-optimized lightweight analysis`);
+    console.log(`[PROBLEM-AGENT] Business idea sample: "${businessIdea.substring(0, 100)}..."`);
     // Skip OpenAI call in Vercel to avoid timeouts
     return {
       improved_problem_statement: businessIdea.substring(0, 500),
